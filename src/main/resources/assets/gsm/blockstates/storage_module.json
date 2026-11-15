@@ -1,0 +1,7 @@
+{
+	"variants": {
+		"": {
+			"model": "gsm:block/storage_module"
+		}
+	}
+}

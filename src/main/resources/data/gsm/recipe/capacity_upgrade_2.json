@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "key": {
+    "C": "gsm:capacity_upgrade",
+    "D": "minecraft:diamond",
+    "G": "minecraft:gold_ingot",
+    "S": "minecraft:shulker_shell"
+  },
+  "pattern": [
+    "GSG",
+    "DCD",
+    "GSG"
+  ],
+  "result": {
+    "id": "gsm:capacity_upgrade_2"
+  }
+}

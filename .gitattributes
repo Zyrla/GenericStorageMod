@@ -1,0 +1,7 @@
+# Normalize text files; keep shell scripts on LF so ./gradlew runs on macOS/Linux.
+* text=auto
+gradlew text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+*.png binary
+*.jar binary

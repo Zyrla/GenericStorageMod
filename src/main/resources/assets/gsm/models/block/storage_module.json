@@ -1,0 +1,7 @@
+{
+	"parent": "minecraft:block/cube_column",
+	"textures": {
+		"end": "gsm:block/storage_module_bottom",
+		"side": "gsm:block/storage_module_side"
+	}
+}

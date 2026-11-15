@@ -1,0 +1,27 @@
+{
+	"schemaVersion": 1,
+	"id": "gsm",
+	"version": "${version}",
+	"name": "Generic Storage Mod",
+	"description": "Storage modules that join into one big shared inventory, with Creative-style category tabs and block disguises.",
+	"authors": [
+		"zyria"
+	],
+	"license": "All-Rights-Reserved",
+	"icon": "assets/gsm/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.zyria.gsm.GenericStorageMod"
+		],
+		"client": [
+			"com.zyria.gsm.client.GenericStorageModClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
