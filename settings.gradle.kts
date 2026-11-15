@@ -6,6 +6,11 @@ pluginManagement {
         maven("https://maven.kikugie.dev/releases") { name = "KikuGie Releases" }
         maven("https://maven.kikugie.dev/snapshots") { name = "KikuGie Snapshots" }
     }
+
+    plugins {
+        // Modrinth's official upload plugin (used by the `modrinth` task).
+        id("com.modrinth.minotaur") version "2.10.0"
+    }
 }
 
 plugins {

@@ -1,6 +1,8 @@
 plugins {
     // Applies the correct Fabric Loom variant for the Minecraft version being built.
     id("dev.kikugie.loom-back-compat")
+    // Uploads the jars to Modrinth.
+    id("com.modrinth.minotaur")
 }
 
 version = "${sc.properties["mod.version"]}+${sc.current.version}"
@@ -45,6 +47,31 @@ loom {
     runConfigs.all {
         runDirectory = rootProject.file("run") // every version shares the same run folder
     }
+}
+
+/**
+ * Modrinth upload: `gradlew modrinth` uploads one Modrinth version per Minecraft version.
+ * Needs a Modrinth access token in the MODRINTH_TOKEN environment variable (never put it in a file).
+ * Add -PmodrinthDryRun to print what would be uploaded without uploading anything.
+ */
+modrinth {
+    val mcReleases = sc.properties.rawOrNull("mod", "mc_releases")?.asList().orEmpty().map { it.toString() }
+    val modVersion = sc.properties["mod.version"]
+
+    token.set(providers.environmentVariable("MODRINTH_TOKEN"))
+    projectId.set("genericstoragemod")
+    versionNumber.set("$modVersion+${sc.current.version}")
+    versionName.set("Generic Storage Mod $modVersion for Minecraft ${mcReleases.joinToString(", ")}")
+    versionType.set("release")
+    uploadFile.set(loomx.modJar)
+    gameVersions.set(mcReleases)
+    loaders.set(listOf("fabric"))
+    changelog.set("First release. Storage Modules join into one shared inventory with tabs, search and sorting; " +
+        "disguise them as normal blocks, connect hoppers, and add Crafting and Capacity upgrades.")
+    dependencies {
+        required.project("fabric-api")
+    }
+    debugMode.set(providers.gradleProperty("modrinthDryRun").isPresent)
 }
 
 java {
