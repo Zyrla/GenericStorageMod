@@ -1,10 +1,11 @@
 param(
   [string]$TextureDir = "src\main\resources\assets\gsm\textures\block",
-  [string]$OutPath = "src\main\resources\assets\gsm\icon.png",
+  [string]$OutPath = "tools\icon_base.png",
   [int]$Size = 128
 )
-# Draws the mod icon: the Storage Module's side texture (copper hoops, red rivets), scaled up
-# with crisp pixels. Simple and readable at small sizes, like in the mod list.
+# Draws a plain icon base: the Storage Module's side texture (copper hoops, red rivets), scaled up
+# with crisp pixels. The real mod icon (src/main/resources/assets/gsm/icon.png, with the "GSM" text)
+# is hand-made from this base, so this script writes to tools/ by default and never overwrites it.
 Add-Type -AssemblyName System.Drawing
 
 $side = [System.Drawing.Bitmap]::FromFile((Resolve-Path (Join-Path $TextureDir 'storage_module_side.png')))
