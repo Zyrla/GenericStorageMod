@@ -62,11 +62,15 @@ Breaking a module never loses items. Its items move into the rest of the system,
 
 ## Requirements
 
-- Minecraft 26.2
+- Minecraft 26.1 to 26.3 (download the file for your version)
 - Fabric Loader 0.20.1 or newer
 - Fabric API
 
 Install on both the client and the server.
+
+## Building
+
+Run `gradlew buildAndCollect`. The jars for every supported version end up in `build/libs/<mod version>/`.
 
 ## License
 

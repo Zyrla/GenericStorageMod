@@ -27,6 +27,8 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import com.zyria.gsm.item.UpgradeItem;
 import net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket;
+//? if >=26.3
+/*import net.minecraft.util.Prediction;*/
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.DataSlot;
 import net.minecraft.world.inventory.ResultContainer;
@@ -276,6 +278,9 @@ public class StorageMenu extends AbstractContainerMenu {
 
 			ItemStack rest = system != null ? system.insert(stack) : stack;
 			if (!rest.isEmpty()) {
+				//? if >=26.3 {
+				/*player.getInventory().placeItemBackInInventory(rest, Prediction.SERVER_ONLY);
+				*///?} else
 				player.getInventory().placeItemBackInInventory(rest);
 			}
 		}
@@ -345,6 +350,9 @@ public class StorageMenu extends AbstractContainerMenu {
 			}
 
 			slot.onTake(player, stack);
+			//? if >=26.3 {
+			/*player.drop(stack, false, Prediction.SERVER_ONLY);
+			*///?} else
 			player.drop(stack, false);
 			return crafted; // returning the craft makes the game repeat it until the grid runs out
 		}
@@ -510,6 +518,9 @@ public class StorageMenu extends AbstractContainerMenu {
 					if (!taken.isEmpty()) {
 						ItemStack rest = system.insert(taken);
 						if (!rest.isEmpty()) {
+							//? if >=26.3 {
+							/*player.drop(rest, false, Prediction.SERVER_ONLY);
+							*///?} else
 							player.drop(rest, false);
 						}
 					}

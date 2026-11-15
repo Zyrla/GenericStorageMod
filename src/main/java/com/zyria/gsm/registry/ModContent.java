@@ -41,6 +41,9 @@ public final class ModContent {
 			.mapColor(MapColor.WOOD)
 			.strength(2.5F)
 			.sound(SoundType.WOOD)
+			//? if >=26.3 {
+			/*.pushReaction(PushReaction.IMMOVEABLE))
+			*///?} else
 			.pushReaction(PushReaction.BLOCK))
 	);
 

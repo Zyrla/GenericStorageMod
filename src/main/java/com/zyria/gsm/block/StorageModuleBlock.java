@@ -19,17 +19,21 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 
 public class StorageModuleBlock extends BaseEntityBlock {
-	public static final MapCodec<StorageModuleBlock> CODEC = simpleCodec(StorageModuleBlock::new);
 	public static final Component TITLE = Component.translatable("container.gsm.storage");
 
 	public StorageModuleBlock(Properties properties) {
 		super(properties);
 	}
 
+	// Blocks needed a codec before 26.3.
+	//? if <26.3 {
+	public static final MapCodec<StorageModuleBlock> CODEC = simpleCodec(StorageModuleBlock::new);
+
 	@Override
 	protected MapCodec<? extends BaseEntityBlock> codec() {
 		return CODEC;
 	}
+	//?}
 
 	@Override
 	public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {

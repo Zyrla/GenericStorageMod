@@ -34,7 +34,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import org.lwjgl.glfw.GLFW;
+import com.mojang.blaze3d.platform.InputConstants;
 
 /**
  * The storage menu, laid out like the Creative inventory: category tabs on the left, a search bar on
@@ -653,7 +653,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 			}
 		}
 
-		if (event.key() == GLFW.GLFW_KEY_DELETE) {
+		if (event.key() == InputConstants.KEY_DELETE) {
 			// Delete takes the hovered item out of the selected tab by hand.
 			int cell = this.cellAt(this.lastMouseX(), this.lastMouseY());
 			StorageTab tab = this.selectedTab();
