@@ -48,6 +48,7 @@ public class StorageModuleBlock extends BaseEntityBlock {
 	protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hitResult) {
 		if (level instanceof ServerLevel serverLevel && player instanceof ServerPlayer serverPlayer) {
 			StorageSystemManager manager = StorageSystemManager.get(serverLevel);
+			manager.removeGhosts(serverLevel, manager.systemAt(pos)); // modules removed by /setblock etc.
 			if (manager.systemAt(pos) == null) {
 				// A module with no system (for example, placed by a tool that skips block callbacks): join it now.
 				manager.onModulePlaced(serverLevel, pos);

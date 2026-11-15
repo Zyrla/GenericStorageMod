@@ -73,12 +73,44 @@ public final class StorageSystemManager extends SavedData {
 		return this.byPos.get(pos.asLong());
 	}
 
+	/**
+	 * Cleans up "ghost" modules: positions the system still tracks although the block there is no longer
+	 * a storage module. This happens when a module is removed without the usual block-removed callbacks,
+	 * for example by /setblock, /fill, structure blocks or world editors. Each ghost is handled exactly as
+	 * if it had been broken (its items move into the system or drop, and the system splits if needed).
+	 * Only checks loaded chunks, so it never loads chunks by itself.
+	 */
+	public void removeGhosts(ServerLevel level, StorageSystem system) {
+		if (system == null) {
+			return;
+		}
+
+		for (long key : system.modules.keySet().toLongArray()) {
+			BlockPos pos = BlockPos.of(key);
+			if (this.byPos.containsKey(key) && level.isLoaded(pos) && !level.getBlockState(pos).is(ModContent.STORAGE_MODULE)) {
+				this.onModuleRemoved(level, pos);
+			}
+		}
+	}
+
 	// ---------------------------------------------------------------- placing and merging
 
 	public void onModulePlaced(ServerLevel level, BlockPos pos) {
 		long key = pos.asLong();
 		if (this.byPos.containsKey(key)) {
 			return;
+		}
+
+		// Clear out ghost modules first, so the new module can't join a system through a block that's gone.
+		Set<StorageSystem> nearby = new LinkedHashSet<>();
+		forEachNeighbor(key, neighbor -> {
+			StorageSystem system = this.byPos.get(neighbor);
+			if (system != null) {
+				nearby.add(system);
+			}
+		});
+		for (StorageSystem system : nearby) {
+			this.removeGhosts(level, system);
 		}
 
 		Set<StorageSystem> touching = new LinkedHashSet<>();
