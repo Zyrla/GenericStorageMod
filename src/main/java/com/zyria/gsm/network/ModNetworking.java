@@ -120,21 +120,6 @@ public final class ModNetworking {
 		}
 	}
 
-	public record MoveTab(int containerId, int tabId, int newIndex) implements CustomPacketPayload {
-		public static final Type<MoveTab> TYPE = new Type<>(ModContent.id("move_tab"));
-		public static final StreamCodec<RegistryFriendlyByteBuf, MoveTab> CODEC = StreamCodec.composite(
-			ByteBufCodecs.VAR_INT, MoveTab::containerId,
-			ByteBufCodecs.VAR_INT, MoveTab::tabId,
-			ByteBufCodecs.VAR_INT, MoveTab::newIndex,
-			MoveTab::new
-		);
-
-		@Override
-		public Type<MoveTab> type() {
-			return TYPE;
-		}
-	}
-
 	public record SetSortMode(int containerId, int tabId, int mode) implements CustomPacketPayload {
 		public static final Type<SetSortMode> TYPE = new Type<>(ModContent.id("set_sort_mode"));
 		public static final StreamCodec<RegistryFriendlyByteBuf, SetSortMode> CODEC = StreamCodec.composite(
@@ -188,7 +173,6 @@ public final class ModNetworking {
 		PayloadTypeRegistry.serverboundPlay().register(AssignItem.TYPE, AssignItem.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(EditTab.TYPE, EditTab.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(RemoveTab.TYPE, RemoveTab.CODEC);
-		PayloadTypeRegistry.serverboundPlay().register(MoveTab.TYPE, MoveTab.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(SetSortMode.TYPE, SetSortMode.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(RotateDisguise.TYPE, RotateDisguise.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(ChangeSetting.TYPE, ChangeSetting.CODEC);
@@ -197,13 +181,6 @@ public final class ModNetworking {
 			StorageMenu menu = openMenu(context.player(), payload.containerId());
 			if (menu != null) {
 				menu.handleSetting(payload.setting(), payload.value());
-			}
-		});
-
-		ServerPlayNetworking.registerGlobalReceiver(MoveTab.TYPE, (payload, context) -> {
-			StorageMenu menu = openMenu(context.player(), payload.containerId());
-			if (menu != null) {
-				menu.handleMoveTab(payload.tabId(), payload.newIndex());
 			}
 		});
 

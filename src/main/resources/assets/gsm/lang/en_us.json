@@ -41,5 +41,5 @@
 	"gui.gsm.sort.mod": "mod",
 	"gui.gsm.disguise": "Disguise",
 	"gui.gsm.disguise.hint": "Put a full, solid block here to make\nthe module you opened look like it.\nTake it out to remove the disguise.",
-	"gui.gsm.help": "Click a tab while holding an item: add that item to the tab\nPress Delete over an item: take it out of this tab\nDrag a tab left or right to move it\n\nThe slot beside your inventory disguises the module you opened.\n\nSearch only looks in the selected tab.\nScroll over the tabs to see more."
+	"gui.gsm.help": "Right-click a tab while holding an item: add that item to the tab\nPress Delete over an item: take it out of this tab\n\nThe slot beside your inventory disguises the module you opened.\n\nSearch only looks in the selected tab.\nScroll over the tabs to see more."
 }

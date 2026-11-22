@@ -95,12 +95,6 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 	private Item lastDisguiseItem;
 	private boolean disguiseTurns;
 	private Button sortButton;
-	// Tab dragging.
-	private int pressedTabId = -1;
-	private double pressX;
-	private boolean draggingTab;
-	private double dragX;
-
 	private int selectedTabId = 0;
 	private int tabScroll;
 	private float scrollOffs;
@@ -486,14 +480,11 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 			StorageTab tab = this.tabAt(mx, my);
 			if (tab != null) {
 				ItemStack carried = this.menu.getCarried();
-				if (!carried.isEmpty()) {
-					// Dropping a held item on a tab assigns that item to the tab by hand.
+				if (event.button() == 1 && !carried.isEmpty()) {
+					// Right-clicking a tab while holding an item adds that item to the tab by hand.
 					ClientPlayNetworking.send(new ModNetworking.AssignItem(this.menu.containerId, tab.id, carried.copyWithCount(1), true));
 				} else {
 					this.selectTab(tab.id);
-					// Holding and moving the mouse drags the tab to a new position.
-					this.pressedTabId = tab.id;
-					this.pressX = mx;
 				}
 
 				this.playClick();
@@ -502,9 +493,11 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
 			int cell = this.cellAt(mx, my);
 			if (cell != -2) {
+				// Shift-click (either button) moves a full stack straight into the player's inventory.
+				boolean shift = event.hasShiftDown() || this.minecraft.hasShiftDown();
 				int action = switch (event.button()) {
-					case 0 -> event.hasShiftDown() ? ModNetworking.CLICK_SHIFT : ModNetworking.CLICK_LEFT;
-					case 1 -> ModNetworking.CLICK_RIGHT;
+					case 0 -> shift ? ModNetworking.CLICK_SHIFT : ModNetworking.CLICK_LEFT;
+					case 1 -> shift ? ModNetworking.CLICK_SHIFT : ModNetworking.CLICK_RIGHT;
 					default -> -1;
 				};
 				if (action >= 0) {
@@ -536,24 +529,6 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 	public boolean mouseReleased(MouseButtonEvent event) {
 		if (event.button() == 0) {
 			this.scrolling = false;
-			boolean wasDragging = this.draggingTab;
-			int draggedId = this.pressedTabId;
-			this.pressedTabId = -1;
-			this.draggingTab = false;
-			if (wasDragging) {
-				int from = this.indexOfTab(draggedId);
-				int to = this.tabScroll + this.dropSlot(event.x());
-				if (to > from) {
-					to--;
-				}
-
-				to = Mth.clamp(to, 0, this.menu.tabs.size() - 1);
-				if (from >= 0 && to != from) {
-					ClientPlayNetworking.send(new ModNetworking.MoveTab(this.menu.containerId, draggedId, to));
-				}
-
-				return true;
-			}
 		}
 
 		return super.mouseReleased(event);
@@ -566,20 +541,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 			return true;
 		}
 
-		if (this.pressedTabId >= 0 && (this.draggingTab || Math.abs(event.x() - this.pressX) > 4)) {
-			this.draggingTab = true;
-			this.dragX = event.x();
-			return true;
-		}
-
 		return super.mouseDragged(event, dx, dy);
-	}
-
-	/** The gap between visible tabs nearest the mouse (0 = left of the first visible tab). */
-	private int dropSlot(double mx) {
-		int slot = (int) Math.floor((mx - this.leftPos) / TAB_SPACING + 0.5);
-		int visibleCount = Math.min(VISIBLE_TABS, this.menu.tabs.size() - this.tabScroll);
-		return Mth.clamp(slot, 0, visibleCount);
 	}
 
 	/** Whether the block in the disguise slot can face more than one direction (logs, pillars, observers...). */
@@ -892,16 +854,6 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 			Identifier sprite = Identifier.withDefaultNamespace("container/creative_inventory/tab_top_" + (selected ? "selected_" : "unselected_") + (i + 1));
 			graphics.blitSprite(RenderPipelines.GUI_TEXTURED, sprite, tx, ty, TAB_WIDTH, TAB_HEIGHT);
 			graphics.item(tab.iconStack(), tx + 5, ty + 9);
-		}
-
-		if (selectedPass && this.draggingTab) {
-			// Where the dragged tab will land, and the tab itself following the mouse.
-			int lineX = this.leftPos + this.dropSlot(this.dragX) * TAB_SPACING - 1;
-			graphics.fill(lineX, this.topPos + TAB_Y, lineX + 2, this.topPos, TEXT_LIGHT);
-			int index = this.indexOfTab(this.pressedTabId);
-			if (index >= 0) {
-				graphics.item(this.menu.tabs.get(index).iconStack(), (int) this.dragX - 8, this.topPos + TAB_Y + 9);
-			}
 		}
 
 		if (!selectedPass) {

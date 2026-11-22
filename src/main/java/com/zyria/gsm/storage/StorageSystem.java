@@ -405,9 +405,10 @@ public final class StorageSystem {
 		return this.totalSlots() - this.usedSlots();
 	}
 
+	/** How full the system is by slots: any slot holding something counts as used, so 100% means no empty slot is left. */
 	public float percentFull() {
 		int total = this.totalSlots();
-		return total == 0 ? 0F : (float) (this.usedSlots() / total * 100.0);
+		return total == 0 ? 0F : (float) (total - this.emptySlotCount) / total * 100.0F;
 	}
 
 	// ---------------------------------------------------------------- items
@@ -724,19 +725,6 @@ public final class StorageSystem {
 		this.resort();
 		this.markChanged();
 		return true;
-	}
-
-	/** Moves a tab to a new position in the tab list. */
-	public void moveTab(int tabId, int newIndex) {
-		StorageTab tab = this.tab(tabId);
-		if (tab == null) {
-			return;
-		}
-
-		this.tabs.remove(tab);
-		this.tabs.add(Math.clamp(newIndex, 0, this.tabs.size()), tab);
-		this.tabsChanged();
-		this.markChanged();
 	}
 
 	/** Changes how a tab orders its items in the menu. */

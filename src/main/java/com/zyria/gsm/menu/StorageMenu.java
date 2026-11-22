@@ -584,14 +584,6 @@ public class StorageMenu extends AbstractContainerMenu {
 		}
 	}
 
-	public void handleMoveTab(int tabId, int newIndex) {
-		StorageSystem system = this.system();
-		if (system != null) {
-			system.moveTab(tabId, newIndex);
-			this.sendNow();
-		}
-	}
-
 	public void handleSortMode(int tabId, int mode) {
 		StorageSystem system = this.system();
 		StorageTab.SortMode[] modes = StorageTab.SortMode.values();
