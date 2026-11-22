@@ -50,7 +50,6 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
 	private static final int WIDTH = 195;
 	private static final int HEIGHT = 197;
-	private static final int PANEL_LIGHT = 0xFFC6C6C6;
 	// Category tabs run along the top, like the Creative inventory.
 	private static final int TAB_WIDTH = 26;
 	private static final int TAB_HEIGHT = 32;
@@ -818,7 +817,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 		this.extractBody(graphics, x, y + 168, 4);
 		// Hotbar row and the bottom edge (leaving out the scrollbar track).
 		this.blitMain(graphics, x, y + 172, 0, 111, 174, 25);
-		graphics.fill(x + 174, y + 172, x + 188, y + 190, PANEL_LIGHT);
+		this.extractFill(graphics, x + 174, y + 172, 14, 18);
 		this.blitMain(graphics, x + 174, y + 190, 174, 129, 14, 7);
 		this.blitMain(graphics, x + 188, y + 172, 188, 111, 7, 25);
 		// Disguise slot frame.
@@ -829,7 +828,15 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 	private void extractBody(GuiGraphicsExtractor graphics, int x, int y, int height) {
 		this.blitMain(graphics, x, y, 0, 20, 3, height);
 		this.blitMain(graphics, x + 192, y, 192, 20, 3, height);
-		graphics.fill(x + 3, y, x + 192, y + height, PANEL_LIGHT);
+		this.extractFill(graphics, x + 3, y, 189, height);
+	}
+
+	/**
+	 * Fills an area with the panel's background color, stretched from one pixel of the texture (between
+	 * the left border and the item grid), so resource packs that recolor menus recolor this too.
+	 */
+	private void extractFill(GuiGraphicsExtractor graphics, int x, int y, int width, int height) {
+		graphics.blit(RenderPipelines.GUI_TEXTURED, MAIN_TEXTURE, x, y, 4.0F, 20.0F, width, height, 1, 1, 256, 256);
 	}
 
 	private void blitMain(GuiGraphicsExtractor graphics, int x, int y, int u, int v, int width, int height) {
