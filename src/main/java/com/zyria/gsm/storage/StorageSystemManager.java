@@ -198,10 +198,8 @@ public final class StorageSystemManager extends SavedData {
 			}
 		}
 
-		winner.modulesChanged();
-		winner.applyUpgrades(); // every module now matches the merged system's slot count
 		winner.resort();
-		winner.markChanged();
+		winner.applyUpgrades(); // every module now matches the merged system's capacity; publishes the change
 		drop(level, placedAt, spareUpgrades);
 		return winner;
 	}
@@ -217,25 +215,19 @@ public final class StorageSystemManager extends SavedData {
 
 		StorageSystem.Module removed = system.modules.remove(key);
 		system.modulesChanged();
-		List<ItemStack> leftovers = new ArrayList<>();
-		if (removed != null) {
-			// The broken module's contents, as normal-sized stacks.
-			for (var entry : removed.items.object2LongEntrySet()) {
-				ItemStack item = entry.getKey();
-				long left = entry.getLongValue();
-				int max = Math.max(1, item.getMaxStackSize());
-				while (left > 0) {
-					int count = (int) Math.min(max, left);
-					leftovers.add(item.copyWithCount(count));
-					left -= count;
-				}
-			}
+		if (removed == null) {
+			removed = new StorageSystem.Module();
 		}
 
 		this.setDirty();
 
 		if (system.modules.isEmpty()) {
-			leftovers.addAll(system.takeUpgrades()); // the last module drops the system's upgrades too
+			// The last module drops everything, plus the system's upgrades.
+			List<ItemStack> leftovers = new ArrayList<>(system.takeUpgrades());
+			for (var entry : removed.items.object2LongEntrySet()) {
+				StorageSystem.toStacks(entry.getKey(), entry.getLongValue(), leftovers);
+			}
+
 			this.remove(system);
 			system.markChanged();
 			drop(level, pos, leftovers);
@@ -245,17 +237,13 @@ public final class StorageSystemManager extends SavedData {
 		List<LongSet> groups = connectedGroups(system.modules.keySet());
 		if (groups.size() == 1) {
 			// No split: the broken module's items move into the free space, the rest drops.
-			List<ItemStack> overflow = new ArrayList<>();
-			for (ItemStack stack : leftovers) {
-				ItemStack rest = system.insert(stack);
-				if (!rest.isEmpty()) {
-					overflow.add(rest);
-				}
-			}
-
-			system.markChanged();
-			drop(level, pos, overflow);
+			drop(level, pos, system.absorb(removed));
 			return;
+		}
+
+		List<ItemStack> leftovers = new ArrayList<>();
+		for (var entry : removed.items.object2LongEntrySet()) {
+			StorageSystem.toStacks(entry.getKey(), entry.getLongValue(), leftovers);
 		}
 
 		// Split: the largest group keeps the original system, every other group becomes a copy.

@@ -190,21 +190,6 @@ public final class StorageSystem {
 		return ModConfig.get().slots_per_module + extra;
 	}
 
-	public int upgradeCount(UpgradeItem.Type type) {
-		int count = 0;
-		for (ItemStack stack : this.upgrades) {
-			if (UpgradeItem.is(stack, type)) {
-				count++;
-			}
-		}
-
-		return count;
-	}
-
-	public boolean hasUpgrade(UpgradeItem.Type type) {
-		return this.upgradeCount(type) > 0;
-	}
-
 	public ItemStack upgrade(int slot) {
 		return this.upgrades[slot];
 	}
@@ -420,19 +405,9 @@ public final class StorageSystem {
 		return (long) this.slotsPerModule() * UNITS_PER_STACK;
 	}
 
-	/** The system's capacity in stacks' worth. */
-	public int totalSlots() {
-		return this.slotsPerModule() * this.modules.size();
-	}
-
-	/** Stacks' worth in use: the sum of (amount / max stack size) over everything stored. */
-	public double usedSlots() {
-		return (double) this.usedUnits / UNITS_PER_STACK;
-	}
-
-	/** Stacks' worth still free. */
+	/** Stacks' worth still free (can be negative while modules are over-full). */
 	public double freeSpace() {
-		return this.totalSlots() - this.usedSlots();
+		return (double) (this.moduleCapacity() * this.modules.size() - this.usedUnits) / UNITS_PER_STACK;
 	}
 
 	/** How full the system is by item amount (32 stone is half a stack's worth). */
@@ -442,10 +417,6 @@ public final class StorageSystem {
 	}
 
 	// ---------------------------------------------------------------- items
-
-	public boolean containsItem(Item item) {
-		return this.typeKeys.containsKey(item);
-	}
 
 	/** Inserts as much of the stack as fits. Returns what did not fit. The argument is not modified. */
 	public ItemStack insert(ItemStack stack) {
@@ -541,6 +512,32 @@ public final class StorageSystem {
 		}
 
 		return amount - left;
+	}
+
+	/**
+	 * Moves a broken module's contents into this system's modules and publishes the change once.
+	 * Returns what didn't fit, as normal-sized stacks.
+	 */
+	List<ItemStack> absorb(Module removed) {
+		List<ItemStack> overflow = new ArrayList<>();
+		for (var entry : removed.items.object2LongEntrySet()) {
+			ItemStack item = entry.getKey();
+			long amount = entry.getLongValue();
+			toStacks(item, amount - this.insertAmount(item, amount, null), overflow);
+		}
+
+		this.markChanged();
+		return overflow;
+	}
+
+	/** Splits an amount of one item into stacks of at most its max stack size. */
+	static void toStacks(ItemStack item, long amount, List<ItemStack> out) {
+		int max = Math.max(1, item.getMaxStackSize());
+		while (amount > 0) {
+			int count = (int) Math.min(max, amount);
+			out.add(item.copyWithCount(count));
+			amount -= count;
+		}
 	}
 
 	public long count(ItemStack prototype) {

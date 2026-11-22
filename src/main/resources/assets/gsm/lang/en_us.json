@@ -32,7 +32,6 @@
 	"gui.gsm.confirm": "Confirm?",
 	"gui.gsm.percent_full": "%s%% full",
 	"gui.gsm.modules": "%s modules",
-	"gui.gsm.stored": "Stored: %s",
 	"gui.gsm.rotate_disguise": "Turn disguise (only for blocks that face a direction, like logs)",
 	"gui.gsm.sort": "Order: %s (click to change)",
 	"gui.gsm.sort.arrival": "order added",

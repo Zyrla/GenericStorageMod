@@ -38,10 +38,6 @@ public class UpgradeItem extends Item {
 		this.type = type;
 	}
 
-	public Type type() {
-		return this.type;
-	}
-
 	/** Explains what the upgrade does, right on the item. */
 	@Override
 	public void appendHoverText(ItemStack stack, TooltipContext context, TooltipDisplay display, Consumer<Component> builder, TooltipFlag flag) {

@@ -49,10 +49,6 @@ public class StorageModuleBlockEntity extends BlockEntity implements RenderDataB
 		return this.disguiseSlot;
 	}
 
-	public BlockState getCamouflage() {
-		return this.camouflage;
-	}
-
 	private void onDisguiseChanged() {
 		if (this.loading) {
 			return;

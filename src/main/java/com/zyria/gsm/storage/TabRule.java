@@ -33,10 +33,6 @@ public record TabRule(boolean tag, Identifier id) {
 		return new TabRule(true, Identifier.parse(id));
 	}
 
-	public static TabRule item(String id) {
-		return new TabRule(false, Identifier.parse(id));
-	}
-
 	public boolean matches(Item item) {
 		if (this.tag) {
 			return item.builtInRegistryHolder().is(TagKey.create(Registries.ITEM, this.id));

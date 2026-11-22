@@ -2,7 +2,7 @@
 mod.id = "gsm"
 mod.name = "Generic Storage Mod"
 mod.group = "com.zyria.gsm"
-mod.version = "1.0.12"
+mod.version = "1.0.13"
 
 deps.fabric_loader = "0.20.1"
 loomx.loom_version = "1.19-SNAPSHOT"

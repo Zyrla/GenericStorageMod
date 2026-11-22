@@ -179,4 +179,6 @@ public final class StorageTab {
 	}
 
 	public static final int FIRST_CUSTOM_ID = 7;
+	/** Most tabs one system can have (built-in ones included). */
+	public static final int MAX_TABS = 64;
 }

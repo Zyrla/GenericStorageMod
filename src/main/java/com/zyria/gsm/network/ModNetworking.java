@@ -28,7 +28,7 @@ public final class ModNetworking {
 	 * whose count changed (count 0 = gone). Tabs are included only when they changed.
 	 */
 	public record SyncView(int containerId, boolean full, List<StoredEntry> changes, Optional<List<StorageTab>> tabs,
-						   int modules, int totalSlots, float percentFull) implements CustomPacketPayload {
+						   int modules, float percentFull) implements CustomPacketPayload {
 		public static final Type<SyncView> TYPE = new Type<>(ModContent.id("sync_view"));
 		public static final StreamCodec<RegistryFriendlyByteBuf, SyncView> CODEC = StreamCodec.composite(
 			ByteBufCodecs.VAR_INT, SyncView::containerId,
@@ -36,7 +36,6 @@ public final class ModNetworking {
 			StoredEntry.STREAM_CODEC.apply(ByteBufCodecs.list()), SyncView::changes,
 			ByteBufCodecs.optional(StorageTab.STREAM_CODEC.apply(ByteBufCodecs.list())), SyncView::tabs,
 			ByteBufCodecs.VAR_INT, SyncView::modules,
-			ByteBufCodecs.VAR_INT, SyncView::totalSlots,
 			ByteBufCodecs.FLOAT, SyncView::percentFull,
 			SyncView::new
 		);

@@ -2,7 +2,6 @@ package com.zyria.gsm.storage;
 
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.List;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
 import net.fabricmc.fabric.api.transfer.v1.storage.StoragePreconditions;
@@ -37,7 +36,7 @@ public final class SystemItemStorage extends SnapshotParticipant<SystemItemStora
 	public long extract(ItemVariant resource, long maxAmount, TransactionContext transaction) {
 		StoragePreconditions.notBlankNotNegative(resource, maxAmount);
 		ItemStack prototype = resource.toStack();
-		if (!this.system.containsItem(prototype.getItem()) || this.system.count(prototype) == 0) {
+		if (this.system.count(prototype) == 0) {
 			return 0;
 		}
 
@@ -47,12 +46,21 @@ public final class SystemItemStorage extends SnapshotParticipant<SystemItemStora
 
 	@Override
 	public Iterator<StorageView<ItemVariant>> iterator() {
-		List<StorageView<ItemVariant>> views = new ArrayList<>(this.system.storedKeys().size());
-		for (ItemStack key : this.system.storedKeys()) {
-			views.add(new EntryView(ItemVariant.of(key), key.copy()));
-		}
+		// A snapshot of the keys, so extracting while iterating is safe. Stored keys are never changed, so
+		// they can be shared; views are only made for the entries a hopper actually looks at.
+		Iterator<ItemStack> keys = new ArrayList<>(this.system.storedKeys()).iterator();
+		return new Iterator<>() {
+			@Override
+			public boolean hasNext() {
+				return keys.hasNext();
+			}
 
-		return views.iterator();
+			@Override
+			public StorageView<ItemVariant> next() {
+				ItemStack key = keys.next();
+				return new EntryView(ItemVariant.of(key), key);
+			}
+		};
 	}
 
 	@Override

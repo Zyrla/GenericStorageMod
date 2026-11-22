@@ -9,12 +9,10 @@ import com.zyria.gsm.storage.StoredEntry;
 import com.zyria.gsm.storage.TabRule;
 import com.zyria.gsm.ModConfig;
 import com.zyria.gsm.block.StorageModuleBlockEntity;
-import com.zyria.gsm.storage.ItemKey;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
+import it.unimi.dsi.fastutil.objects.Object2LongOpenCustomHashMap;
+import it.unimi.dsi.fastutil.objects.Object2ObjectLinkedOpenCustomHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.BlockPos;
@@ -63,7 +61,6 @@ public class StorageMenu extends AbstractContainerMenu {
 	/** Crafting panel (Crafting upgrade): result slot, then the 3 x 3 grid. Drawn left of the menu. */
 	public static final int RESULT_SLOT = UPGRADE_SLOT_START + StorageSystem.UPGRADE_SLOTS;
 	public static final int CRAFT_SLOT_START = RESULT_SLOT + 1;
-	public static final int CRAFT_SLOT_END = CRAFT_SLOT_START + 9;
 	public static final int CRAFT_PANEL_X = -168;
 	public static final int CRAFT_PANEL_Y = 0;
 
@@ -80,16 +77,15 @@ public class StorageMenu extends AbstractContainerMenu {
 	private StorageSystem sentSystem;
 	private int sentVersion = -1;
 	private int sentTabsVersion = -1;
-	private final Map<ItemKey, Long> sentCounts = new HashMap<>();
+	private Object2LongOpenCustomHashMap<ItemStack> sentCounts = new Object2LongOpenCustomHashMap<>(StorageSystem.ITEM_AND_COMPONENTS);
 	private long lastSendTick = Long.MIN_VALUE;
 	private boolean forceSend;
 
 	// Client side: the latest view from the server, kept up to date by applying changes.
-	private final LinkedHashMap<ItemKey, StoredEntry> clientEntries = new LinkedHashMap<>();
+	private final Object2ObjectLinkedOpenCustomHashMap<ItemStack, StoredEntry> clientEntries = new Object2ObjectLinkedOpenCustomHashMap<>(StorageSystem.ITEM_AND_COMPONENTS);
 	public List<StoredEntry> entries = List.of();
 	public List<StorageTab> tabs = List.of();
 	public int modules;
-	public int totalSlots;
 	public float percentFull;
 	public int viewRevision;
 
@@ -416,26 +412,24 @@ public class StorageMenu extends AbstractContainerMenu {
 
 		// Only send items whose count changed (0 means the item is gone).
 		List<StoredEntry> changes = new ArrayList<>();
-		Map<ItemKey, Long> current = new HashMap<>();
-		for (StoredEntry entry : system.aggregate()) {
-			ItemKey key = new ItemKey(entry.stack());
-			current.put(key, entry.count());
-			Long previous = full ? null : this.sentCounts.get(key);
-			if (previous == null || previous != entry.count()) {
+		List<StoredEntry> all = system.aggregate();
+		Object2LongOpenCustomHashMap<ItemStack> current = new Object2LongOpenCustomHashMap<>(all.size(), StorageSystem.ITEM_AND_COMPONENTS);
+		for (StoredEntry entry : all) {
+			current.put(entry.stack(), entry.count());
+			if (full || this.sentCounts.getLong(entry.stack()) != entry.count()) {
 				changes.add(entry);
 			}
 		}
 
 		if (!full) {
-			for (ItemKey key : this.sentCounts.keySet()) {
+			for (ItemStack key : this.sentCounts.keySet()) {
 				if (!current.containsKey(key)) {
-					changes.add(new StoredEntry(key.stack(), 0));
+					changes.add(new StoredEntry(key, 0));
 				}
 			}
 		}
 
-		this.sentCounts.clear();
-		this.sentCounts.putAll(current);
+		this.sentCounts = current;
 
 		// Tabs only go along when they changed. Copies: in singleplayer the payload reaches the client as-is.
 		Optional<List<StorageTab>> tabs = full || system.tabsVersion() != this.sentTabsVersion
@@ -446,7 +440,7 @@ public class StorageMenu extends AbstractContainerMenu {
 		this.sentVersion = system.version();
 		this.sentTabsVersion = system.tabsVersion();
 		ServerPlayNetworking.send(serverPlayer, new ModNetworking.SyncView(
-			this.containerId, full, changes, tabs, system.moduleCount(), system.totalSlots(), system.percentFull()
+			this.containerId, full, changes, tabs, system.moduleCount(), system.percentFull()
 		));
 	}
 
@@ -464,18 +458,16 @@ public class StorageMenu extends AbstractContainerMenu {
 		}
 
 		for (StoredEntry entry : view.changes()) {
-			ItemKey key = new ItemKey(entry.stack());
 			if (entry.count() <= 0) {
-				this.clientEntries.remove(key);
+				this.clientEntries.remove(entry.stack());
 			} else {
-				this.clientEntries.put(key, entry);
+				this.clientEntries.put(entry.stack(), entry);
 			}
 		}
 
 		this.entries = List.copyOf(this.clientEntries.values());
 		view.tabs().ifPresent(tabs -> this.tabs = tabs);
 		this.modules = view.modules();
-		this.totalSlots = view.totalSlots();
 		this.percentFull = view.percentFull();
 		this.viewRevision++;
 	}
@@ -568,7 +560,7 @@ public class StorageMenu extends AbstractContainerMenu {
 			}
 		}
 
-		if (tabId >= 0 && system.tab(tabId) == null) {
+		if (tabId >= 0 ? system.tab(tabId) == null : system.tabs.size() >= StorageTab.MAX_TABS) {
 			return;
 		}
 
@@ -598,9 +590,5 @@ public class StorageMenu extends AbstractContainerMenu {
 		if (this.player.level().getBlockEntity(this.modulePos) instanceof StorageModuleBlockEntity module) {
 			module.rotateDisguise();
 		}
-	}
-
-	public static boolean isBuiltIn(StorageTab tab) {
-		return tab.kind != StorageTab.Kind.CATEGORY;
 	}
 }

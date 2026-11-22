@@ -4,6 +4,7 @@ import com.zyria.gsm.block.Camouflage;
 import com.zyria.gsm.menu.StorageMenu;
 import net.minecraft.world.level.block.state.BlockState;
 import com.zyria.gsm.network.ModNetworking;
+import com.zyria.gsm.storage.StorageSystem;
 import com.zyria.gsm.storage.StorageTab;
 import com.zyria.gsm.storage.StoredEntry;
 import com.zyria.gsm.storage.TabRule;
@@ -37,9 +38,9 @@ import net.minecraft.world.item.ItemStack;
 import com.mojang.blaze3d.platform.InputConstants;
 
 /**
- * The storage menu, laid out like the Creative inventory: category tabs on the left, a search bar on
- * top, the selected tab's items in the middle, how full the system is on the right, and the player's
- * inventory at the bottom. All textures are vanilla placeholders.
+ * The storage menu, laid out like the Creative inventory: category tabs along the top, a search bar,
+ * the selected tab's items in the middle, how full the system is on the right, and the player's
+ * inventory at the bottom. Drawn with vanilla textures, so resource packs restyle it too.
  */
 public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 	private static final Identifier MAIN_TEXTURE = Identifier.withDefaultNamespace("textures/gui/container/creative_inventory/tab_item_search.png");
@@ -66,6 +67,8 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 	/** How far the menu shifts right while the crafting panel is open, so it stays on screen. */
 	private static final int CRAFT_SHIFT = 84;
 	private static final int VISIBLE_TABS = 7;
+	private static final Identifier[] TAB_SPRITES = tabSprites("unselected_");
+	private static final Identifier[] TAB_SELECTED_SPRITES = tabSprites("selected_");
 	private static final int SCROLLER_X = 175;
 	private static final int SCROLLER_Y = 18;
 	private static final int SCROLL_AREA = 90;
@@ -297,8 +300,11 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 			byItem.computeIfAbsent(entry.stack().getItem(), item -> new ArrayList<>()).add(entry);
 		}
 
+		// Each item's name is worked out once here, not again for every comparison while sorting.
+		StorageTab.SortMode mode = tab.sortMode;
 		String query = this.searchBox == null ? "" : this.searchBox.getValue().trim().toLowerCase(Locale.ROOT);
-		List<StoredEntry> result = new ArrayList<>();
+		boolean needNames = !query.isEmpty() || mode == StorageTab.SortMode.NAME || mode == StorageTab.SortMode.MOD;
+		List<Row> rows = new ArrayList<>();
 		for (Identifier id : tab.entries) {
 			List<StoredEntry> matches = byItem.get(BuiltInRegistries.ITEM.getValue(id));
 			if (matches == null) {
@@ -306,20 +312,24 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 			}
 
 			for (StoredEntry entry : matches) {
-				if (query.isEmpty() || entry.stack().getHoverName().getString().toLowerCase(Locale.ROOT).contains(query)) {
-					result.add(entry);
+				String name = needNames ? entry.stack().getHoverName().getString().toLowerCase(Locale.ROOT) : "";
+				if (query.isEmpty() || name.contains(query)) {
+					rows.add(new Row(entry, name, id.getNamespace()));
 				}
 			}
 		}
 
-		StorageTab.SortMode mode = tab.sortMode;
 		if (mode == StorageTab.SortMode.NAME) {
-			result.sort(Comparator.comparing(e -> e.stack().getHoverName().getString().toLowerCase(Locale.ROOT)));
+			rows.sort(Comparator.comparing(Row::name));
 		} else if (mode == StorageTab.SortMode.COUNT) {
-			result.sort(Comparator.comparingLong(StoredEntry::count).reversed());
+			rows.sort(Comparator.comparingLong((Row r) -> r.entry().count()).reversed());
 		} else if (mode == StorageTab.SortMode.MOD) {
-			result.sort(Comparator.comparing((StoredEntry e) -> BuiltInRegistries.ITEM.getKey(e.stack().getItem()).getNamespace())
-				.thenComparing(e -> e.stack().getHoverName().getString().toLowerCase(Locale.ROOT)));
+			rows.sort(Comparator.comparing(Row::namespace).thenComparing(Row::name));
+		}
+
+		List<StoredEntry> result = new ArrayList<>(rows.size());
+		for (Row row : rows) {
+			result.add(row.entry());
 		}
 
 		this.visible = result;
@@ -327,6 +337,9 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 		if (!this.canScroll()) {
 			this.scrollOffs = 0;
 		}
+	}
+
+	private record Row(StoredEntry entry, String name, String namespace) {
 	}
 
 	private int hiddenRows() {
@@ -729,6 +742,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 		this.removeButton.visible = editor && this.editingTabId >= 0;
 
 		this.settingsNewTab.visible = this.settingsOpen;
+		this.settingsNewTab.active = this.menu.tabs.size() < StorageTab.MAX_TABS;
 		this.settingsEditTab.visible = this.settingsOpen;
 		this.settingsEditTab.active = this.selectedTab() != null;
 		this.autoFillButton.visible = this.settingsOpen && this.menu.hasCraftingUpgrade();
@@ -843,6 +857,15 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 		graphics.blit(RenderPipelines.GUI_TEXTURED, MAIN_TEXTURE, x, y, (float) u, (float) v, width, height, 256, 256);
 	}
 
+	private static Identifier[] tabSprites(String state) {
+		Identifier[] sprites = new Identifier[VISIBLE_TABS];
+		for (int i = 0; i < VISIBLE_TABS; i++) {
+			sprites[i] = Identifier.withDefaultNamespace("container/creative_inventory/tab_top_" + state + (i + 1));
+		}
+
+		return sprites;
+	}
+
 	private void extractTabs(GuiGraphicsExtractor graphics, boolean selectedPass) {
 		for (int i = 0; i < VISIBLE_TABS; i++) {
 			int index = this.tabScroll + i;
@@ -858,8 +881,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
 			int tx = this.leftPos + i * TAB_SPACING;
 			int ty = this.topPos + TAB_Y;
-			Identifier sprite = Identifier.withDefaultNamespace("container/creative_inventory/tab_top_" + (selected ? "selected_" : "unselected_") + (i + 1));
-			graphics.blitSprite(RenderPipelines.GUI_TEXTURED, sprite, tx, ty, TAB_WIDTH, TAB_HEIGHT);
+			graphics.blitSprite(RenderPipelines.GUI_TEXTURED, (selected ? TAB_SELECTED_SPRITES : TAB_SPRITES)[i], tx, ty, TAB_WIDTH, TAB_HEIGHT);
 			graphics.item(tab.iconStack(), tx + 5, ty + 9);
 		}
 
@@ -940,7 +962,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
 		// Upgrade slots (2 x 2) under the capacity readout.
 		graphics.text(this.font, Component.translatable("gui.gsm.upgrades"), x, this.topPos + StorageMenu.UPGRADE_Y - 11, TEXT_LIGHT, true);
-		for (int i = 0; i < 4; i++) {
+		for (int i = 0; i < StorageSystem.UPGRADE_SLOTS; i++) {
 			this.blitMain(graphics, this.leftPos + StorageMenu.UPGRADE_X - 1 + (i % 2) * 18, this.topPos + StorageMenu.UPGRADE_Y - 1 + (i / 2) * 18, 8, 17, 18, 18);
 		}
 	}
@@ -978,9 +1000,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 		int cell = this.cellAt(mouseX, mouseY);
 		if (cell >= 0) {
 			StoredEntry entry = this.visible.get(cell);
-			List<Component> lines = new ArrayList<>(getTooltipFromItem(this.minecraft, entry.stack()));
-			lines.add(Component.translatable("gui.gsm.stored", String.format(Locale.ROOT, "%,d", entry.count())).withStyle(net.minecraft.ChatFormatting.GRAY));
-			graphics.setComponentTooltipForNextFrame(this.font, lines, mouseX, mouseY);
+			graphics.setComponentTooltipForNextFrame(this.font, getTooltipFromItem(this.minecraft, entry.stack()), mouseX, mouseY);
 			return;
 		}
 
@@ -1002,8 +1022,9 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 			return Long.toString(count);
 		}
 
+		// Rounded down, so 9,999 shows as 9.9k rather than 10.0k.
 		if (count < 10_000) {
-			return String.format(Locale.ROOT, "%.1fk", count / 1000.0);
+			return count / 1000 + "." + count / 100 % 10 + "k";
 		}
 
 		if (count < 1_000_000) {
@@ -1011,7 +1032,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 		}
 
 		if (count < 10_000_000) {
-			return String.format(Locale.ROOT, "%.1fM", count / 1_000_000.0);
+			return count / 1_000_000 + "." + count / 100_000 % 10 + "M";
 		}
 
 		return (count / 1_000_000) + "M";
