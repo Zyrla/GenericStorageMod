@@ -18,7 +18,7 @@ public final class ModConfig {
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 	private static ModConfig instance = new ModConfig();
 
-	public String _help = "slots_per_module: slots in each module (1-270). Lowering it never removes items from modules that already exist. "
+	public String _help = "slots_per_module: how many stacks of items each module holds, in any mix (1-270). Lowering it never removes items. "
 		+ "allow_merging: if false, a module touching two systems joins only one of them (the larger one) instead of merging them. "
 		+ "sync_interval_ticks: how often open menus update while items are moving (1-100, 20 ticks = 1 second). "
 		+ "Restart the game or server after editing.";

@@ -4,11 +4,11 @@ Storage Modules are blocks that store items. Put them next to each other and the
 
 ## Features
 
-- **Modules join together.** Each module has 27 slots. Modules that touch (side, edge or corner) become one storage system. Open any module to see everything.
+- **Modules join together.** Each module holds 27 stacks of items in any mix: 1,728 stone, or one each of 1,728 different items. Unstackable items like tools take a whole stack of room each. Modules that touch (side, edge or corner) become one storage system. Open any module to see everything.
 - **Tabs and search.** Items are sorted into tabs like Building Blocks, Tools and Food. You can make your own tabs, search, and change how each tab is sorted.
 - **Disguises.** Put a solid block in the disguise slot and the module looks like that block.
 - **Hoppers work.** Hoppers can put items in and take items out.
-- **Upgrades.** Add a crafting grid to the menu, or more slots to every module.
+- **Upgrades.** Add a crafting grid to the menu, or more room to every module.
 
 ## Recipes
 
@@ -28,7 +28,7 @@ Storage Modules are blocks that store items. Put them next to each other and the
 | Redstone | Crafting Table | Redstone |
 | Iron Ingot | Redstone | Iron Ingot |
 
-**Capacity Upgrade I** (+4 slots in every module)
+**Capacity Upgrade I** (+4 stacks of room in every module)
 
 | | | |
 |:-:|:-:|:-:|
@@ -36,7 +36,7 @@ Storage Modules are blocks that store items. Put them next to each other and the
 | Barrel | Ender Pearl | Barrel |
 | Gold Ingot | Barrel | Gold Ingot |
 
-**Capacity Upgrade II** (+9 slots in every module)
+**Capacity Upgrade II** (+9 stacks of room in every module)
 
 | | | |
 |:-:|:-:|:-:|
@@ -57,7 +57,7 @@ Breaking a module never loses items. Its items move into the rest of the system,
 
 ## Settings file
 
-`config/gsm.json` lets you change the slots per module, turn off merging, and change how often the menu updates.
+`config/gsm.json` lets you change how many stacks each module holds, turn off merging, and change how often the menu updates.
 
 ## Requirements
 

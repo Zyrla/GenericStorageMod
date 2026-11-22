@@ -23,7 +23,7 @@ public class UpgradeSlot extends Slot {
 		return 1;
 	}
 
-	/** A Capacity upgrade can't come out while the slots it adds still hold items that wouldn't fit elsewhere. */
+	/** A Capacity upgrade can't come out while the system holds more than would fit without it. */
 	@Override
 	public boolean mayPickup(Player player) {
 		if (this.container instanceof UpgradeContainer upgrades) {

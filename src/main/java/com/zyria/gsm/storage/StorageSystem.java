@@ -5,10 +5,9 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import it.unimi.dsi.fastutil.Hash;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2IntLinkedOpenHashMap;
-import it.unimi.dsi.fastutil.objects.Object2LongOpenCustomHashMap;
+import it.unimi.dsi.fastutil.objects.Object2LongLinkedOpenCustomHashMap;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -24,14 +23,17 @@ import net.minecraft.world.item.ItemStack;
 
 /**
  * One storage system: a group of touching modules that works like one big chest.
- * Each module keeps its own slots (27 by default, see the settings file); the system pools them.
+ * <p>
+ * Modules have no slots. Each module holds a number of stacks' worth of items (27 by default, see the
+ * settings file) in any mix: every item costs 1/max-stack-size of a stack, so a module can hold 1,728 stone,
+ * 432 ender pearls, 27 swords, or one each of 1,728 different stackable items. The system pools its modules.
  */
 public final class StorageSystem {
 
 	public static final Hash.Strategy<ItemStack> ITEM_AND_COMPONENTS = new Hash.Strategy<>() {
 		@Override
 		public int hashCode(ItemStack stack) {
-			return ItemStack.hashItemAndComponents(stack);
+			return stack == null ? 0 : ItemStack.hashItemAndComponents(stack);
 		}
 
 		@Override
@@ -40,10 +42,37 @@ public final class StorageSystem {
 		}
 	};
 
-	private record ModuleData(long pos, List<ItemStack> items) {
+	/**
+	 * Capacity units in one stack's worth. Divisible by every stack size from 1 to 16 and by 32 and 64, so
+	 * vanilla items cost an exact number of units (other sizes round up by a tiny fraction).
+	 */
+	public static final long UNITS_PER_STACK = 2_882_880L;
+
+	/** Capacity units one item of this kind takes up. */
+	public static long unitCost(ItemStack stack) {
+		int max = Math.max(1, stack.getMaxStackSize());
+		return (UNITS_PER_STACK + max - 1) / max;
+	}
+
+	/** One module's contents: item (count-1 prototype) to amount, plus the capacity units in use. */
+	public static final class Module {
+		final Object2LongLinkedOpenCustomHashMap<ItemStack> items = new Object2LongLinkedOpenCustomHashMap<>(ITEM_AND_COMPONENTS);
+		long used;
+	}
+
+	private record Content(ItemStack item, long count) {
+		static final Codec<Content> CODEC = RecordCodecBuilder.create(i -> i.group(
+			ItemStack.CODEC.fieldOf("item").forGetter(Content::item),
+			Codec.LONG.fieldOf("count").forGetter(Content::count)
+		).apply(i, Content::new));
+	}
+
+	/** Saved module. "items" is the old slot format (still read, converted on load); "contents" is the current one. */
+	private record ModuleData(long pos, List<ItemStack> items, List<Content> contents) {
 		static final Codec<ModuleData> CODEC = RecordCodecBuilder.create(i -> i.group(
 			Codec.LONG.fieldOf("pos").forGetter(ModuleData::pos),
-			ItemStack.OPTIONAL_CODEC.listOf().fieldOf("items").forGetter(ModuleData::items)
+			ItemStack.OPTIONAL_CODEC.listOf().optionalFieldOf("items", List.of()).forGetter(ModuleData::items),
+			Content.CODEC.listOf().optionalFieldOf("contents", List.of()).forGetter(ModuleData::contents)
 		).apply(i, ModuleData::new));
 	}
 
@@ -76,8 +105,8 @@ public final class StorageSystem {
 	final ItemStack[] upgrades = emptySlots(UPGRADE_SLOTS);
 
 	public final UUID id;
-	/** Module position (as a long) to that module's slots. */
-	final Long2ObjectLinkedOpenHashMap<ItemStack[]> modules = new Long2ObjectLinkedOpenHashMap<>();
+	/** Module position (as a long) to that module's contents. */
+	final Long2ObjectLinkedOpenHashMap<Module> modules = new Long2ObjectLinkedOpenHashMap<>();
 	public final List<StorageTab> tabs;
 	int nextTabId;
 	/** Bumped on every change so open menus know to resend their view. */
@@ -85,17 +114,21 @@ public final class StorageSystem {
 	private int tabsVersion;
 	private List<StoredEntry> aggregateCache;
 
-	// Running index, kept up to date on every slot change so lookups don't scan every slot.
-	/** Item type -> number of slots holding it, in the order types first arrived. */
-	private final Object2IntLinkedOpenHashMap<Item> typeSlots = new Object2IntLinkedOpenHashMap<>();
-	private int emptySlotCount;
-	private int totalSlotCount;
+	// Running index, kept up to date on every change so lookups don't scan every module.
+	/** Every distinct item (item + components) to its total amount, in the order they first arrived. */
+	private final Object2LongLinkedOpenCustomHashMap<ItemStack> totals = new Object2LongLinkedOpenCustomHashMap<>(ITEM_AND_COMPONENTS);
+	/** Item type to the number of distinct entries of it (different components count separately). */
+	private final Object2IntLinkedOpenHashMap<Item> typeKeys = new Object2IntLinkedOpenHashMap<>();
+	private long usedUnits;
 	/** Item types that arrived since the last change was published; they get sorted into tabs then. */
 	private final LinkedHashSet<Item> pendingNewTypes = new LinkedHashSet<>();
-	private double usedSlotsCache;
-	private int usedSlotsVersion = -1;
+	/** While a hopper/pipe transaction is open: every change made, so it can be undone. */
+	List<Change> journal;
 	Runnable dirtyListener = () -> {
 	};
+
+	record Change(Module module, ItemStack item, long delta) {
+	}
 
 	public StorageSystem(UUID id, List<StorageTab> tabs, int nextTabId) {
 		this.id = id;
@@ -110,21 +143,21 @@ public final class StorageSystem {
 			system.upgrades[i] = upgrades.get(i);
 		}
 
-		for (ModuleData module : modules) {
-			// Never shrink a saved module below what it holds, even if the setting was lowered.
-			int used = 0;
-			for (int i = 0; i < module.items().size(); i++) {
-				if (!module.items().get(i).isEmpty()) {
-					used = i + 1;
+		for (ModuleData data : modules) {
+			Module module = new Module();
+			for (ItemStack stack : data.items()) {
+				if (!stack.isEmpty()) {
+					module.items.addTo(stack.copyWithCount(1), stack.getCount());
 				}
 			}
 
-			ItemStack[] slots = emptySlots(Math.max(system.slotsPerModule(), used));
-			for (int i = 0; i < Math.min(slots.length, module.items().size()); i++) {
-				slots[i] = module.items().get(i);
+			for (Content content : data.contents()) {
+				if (!content.item().isEmpty() && content.count() > 0) {
+					module.items.addTo(content.item().copyWithCount(1), content.count());
+				}
 			}
 
-			system.modules.put(module.pos(), slots);
+			system.modules.put(data.pos(), module);
 		}
 
 		system.rebuildIndex();
@@ -134,7 +167,12 @@ public final class StorageSystem {
 	private List<ModuleData> moduleData() {
 		List<ModuleData> list = new ArrayList<>(this.modules.size());
 		for (var entry : this.modules.long2ObjectEntrySet()) {
-			list.add(new ModuleData(entry.getLongKey(), Arrays.asList(entry.getValue())));
+			List<Content> contents = new ArrayList<>(entry.getValue().items.size());
+			for (var item : entry.getValue().items.object2LongEntrySet()) {
+				contents.add(new Content(item.getKey(), item.getLongValue()));
+			}
+
+			list.add(new ModuleData(entry.getLongKey(), List.of(), contents));
 		}
 
 		return list;
@@ -142,7 +180,7 @@ public final class StorageSystem {
 
 	// ---------------------------------------------------------------- upgrades
 
-	/** Slots each module should have: the configured base plus any Capacity upgrades. */
+	/** Stacks' worth each module holds: the configured base plus any Capacity upgrades. */
 	public int slotsPerModule() {
 		int extra = 0;
 		for (ItemStack stack : this.upgrades) {
@@ -200,26 +238,9 @@ public final class StorageSystem {
 		return taken;
 	}
 
-	/**
-	 * Whether every module could shrink to {@code size} slots: the items in the slots that would go
-	 * must fit in the empty slots that stay.
-	 */
+	/** Whether everything stored would still fit if every module held {@code size} stacks' worth. */
 	public boolean canShrinkTo(int size) {
-		int displaced = 0;
-		int room = 0;
-		for (ItemStack[] slots : this.modules.values()) {
-			for (int i = 0; i < slots.length; i++) {
-				if (i < size) {
-					if (slots[i].isEmpty()) {
-						room++;
-					}
-				} else if (!slots[i].isEmpty()) {
-					displaced++;
-				}
-			}
-		}
-
-		return displaced <= room;
+		return this.usedUnits <= (long) size * UNITS_PER_STACK * this.modules.size();
 	}
 
 	/** Whether this upgrade can be taken out right now without losing items (only Capacity upgrades can block). */
@@ -229,37 +250,26 @@ public final class StorageSystem {
 	}
 
 	/**
-	 * Resizes every module to {@link #slotsPerModule()}. Modules always grow; they only shrink when the
-	 * items in the removed slots fit elsewhere in the system (otherwise they keep their extra slots).
+	 * Called when the upgrades (and so every module's capacity) change. Modules holding more than they now
+	 * can pass the extra on to modules with room. If there isn't room, they simply stay over-full (nothing is
+	 * lost; they take nothing new until they drop below their capacity).
 	 */
 	public void applyUpgrades() {
-		int size = this.slotsPerModule();
-		boolean shrink = this.canShrinkTo(size);
-		List<ItemStack> displaced = new ArrayList<>();
-		boolean resized = false;
-		for (long key : this.modules.keySet().toLongArray()) {
-			ItemStack[] slots = this.modules.get(key);
-			if (slots.length == size || slots.length > size && !shrink) {
+		long capacity = this.moduleCapacity();
+		for (Module module : this.modules.values()) {
+			if (module.used <= capacity) {
 				continue;
 			}
 
-			ItemStack[] resizedSlots = emptySlots(size);
-			for (int i = 0; i < slots.length; i++) {
-				if (i < size) {
-					resizedSlots[i] = slots[i];
-				} else if (!slots[i].isEmpty()) {
-					displaced.add(slots[i]);
+			for (ItemStack item : new ArrayList<>(module.items.keySet())) {
+				if (module.used <= capacity) {
+					break;
 				}
-			}
 
-			this.modules.put(key, resizedSlots);
-			resized = true;
-		}
-
-		if (resized) {
-			this.modulesChanged();
-			for (ItemStack stack : displaced) {
-				this.insert(stack); // canShrinkTo guaranteed room for these
+				long cost = unitCost(item);
+				long excess = Math.min(module.items.getLong(item), (module.used - capacity + cost - 1) / cost);
+				long moved = this.insertAmount(item, excess, module);
+				this.change(module, item, -moved);
 			}
 		}
 
@@ -281,7 +291,7 @@ public final class StorageSystem {
 			// Only the new item types need sorting into tabs, not everything stored.
 			List<Item> fresh = new ArrayList<>(this.pendingNewTypes);
 			this.pendingNewTypes.clear();
-			fresh.removeIf(item -> !this.typeSlots.containsKey(item));
+			fresh.removeIf(item -> !this.typeKeys.containsKey(item));
 			if (!fresh.isEmpty()) {
 				this.sortIntoTabs(fresh, false);
 			}
@@ -305,10 +315,10 @@ public final class StorageSystem {
 
 	private SystemItemStorage itemStorage;
 
-	/** The system as a Fabric item storage. Rebuilt when modules join or leave. */
+	/** The system as a Fabric item storage, for hoppers and pipes. */
 	public SystemItemStorage itemStorage() {
 		if (this.itemStorage == null) {
-			this.itemStorage = SystemItemStorage.create(this);
+			this.itemStorage = new SystemItemStorage(this);
 		}
 
 		return this.itemStorage;
@@ -316,59 +326,87 @@ public final class StorageSystem {
 
 	/** Must be called whenever {@link #modules} gains or loses a module. */
 	void modulesChanged() {
-		this.itemStorage = null;
 		this.rebuildIndex();
 	}
 
-	/** Called after a hopper or pipe commits a change to the slots. New item types are sorted in markChanged. */
+	/** Called after a hopper or pipe commits its changes. New item types are sorted in markChanged. */
 	void onExternalChange() {
 		this.markChanged();
+	}
+
+	/** Undoes journaled changes back to {@code size} entries (a hopper/pipe transaction was cancelled). */
+	void undoTo(int size) {
+		List<Change> journal = this.journal;
+		this.journal = null; // the undo itself must not be journaled
+		for (int i = journal.size() - 1; i >= size; i--) {
+			Change change = journal.remove(i);
+			this.change(change.module(), change.item(), -change.delta());
+		}
+
+		this.journal = journal;
 	}
 
 	// ---------------------------------------------------------------- index
 
 	private void rebuildIndex() {
-		this.typeSlots.clear();
-		this.emptySlotCount = 0;
-		this.totalSlotCount = 0;
-		for (ItemStack[] slots : this.modules.values()) {
-			this.totalSlotCount += slots.length;
-			for (ItemStack stack : slots) {
-				if (stack.isEmpty()) {
-					this.emptySlotCount++;
+		this.totals.clear();
+		this.typeKeys.clear();
+		this.usedUnits = 0;
+		for (Module module : this.modules.values()) {
+			module.used = 0;
+			for (var entry : module.items.object2LongEntrySet()) {
+				ItemStack item = entry.getKey();
+				long amount = entry.getLongValue();
+				module.used += unitCost(item) * amount;
+				if (!this.totals.containsKey(item)) {
+					this.totals.put(item, amount);
+					this.typeKeys.addTo(item.getItem(), 1);
 				} else {
-					this.typeSlots.addTo(stack.getItem(), 1);
+					this.totals.addTo(item, amount);
 				}
 			}
-		}
 
-		this.usedSlotsVersion = -1;
+			this.usedUnits += module.used;
+		}
 	}
 
-	/**
-	 * Records that a slot went from holding {@code before} to holding {@code after} (null = empty).
-	 * Only needed when the slot's item type changes, not when a stack just grows or shrinks.
-	 */
-	void onSlotChanged(Item before, Item after) {
-		if (before == after) {
+	/** Adds (or with a negative delta, removes) items in one module, keeping the index and journal right. */
+	private void change(Module module, ItemStack item, long delta) {
+		if (delta == 0) {
 			return;
 		}
 
-		if (before == null) {
-			this.emptySlotCount--;
-		} else if (this.typeSlots.addTo(before, -1) <= 1) {
-			this.typeSlots.removeInt(before);
+		long inModule = module.items.getLong(item) + delta;
+		if (inModule <= 0) {
+			module.items.removeLong(item);
+		} else if (module.items.containsKey(item)) {
+			module.items.put(item, inModule); // keeps the stored key
+		} else {
+			module.items.put(item.copyWithCount(1), inModule);
 		}
 
-		if (after == null) {
-			this.emptySlotCount++;
-		} else if (this.typeSlots.addTo(after, 1) == 0) {
-			this.pendingNewTypes.add(after);
-		}
-	}
+		long units = unitCost(item) * delta;
+		module.used += units;
+		this.usedUnits += units;
 
-	public int emptySlotCount() {
-		return this.emptySlotCount;
+		long total = this.totals.getLong(item) + delta;
+		if (total <= 0) {
+			this.totals.removeLong(item);
+			if (this.typeKeys.addTo(item.getItem(), -1) <= 1) {
+				this.typeKeys.removeInt(item.getItem());
+			}
+		} else if (this.totals.containsKey(item)) {
+			this.totals.put(item, total);
+		} else {
+			this.totals.put(item.copyWithCount(1), total);
+			if (this.typeKeys.addTo(item.getItem(), 1) == 0) {
+				this.pendingNewTypes.add(item.getItem());
+			}
+		}
+
+		if (this.journal != null) {
+			this.journal.add(new Change(module, item.copyWithCount(1), delta));
+		}
 	}
 
 	// ---------------------------------------------------------------- capacity
@@ -377,44 +415,36 @@ public final class StorageSystem {
 		return this.modules.size();
 	}
 
+	/** Capacity units each module holds. */
+	public long moduleCapacity() {
+		return (long) this.slotsPerModule() * UNITS_PER_STACK;
+	}
+
+	/** The system's capacity in stacks' worth. */
 	public int totalSlots() {
-		return this.totalSlotCount;
+		return this.slotsPerModule() * this.modules.size();
 	}
 
-	/** Sum over slots of (items in slot / max stack size). */
+	/** Stacks' worth in use: the sum of (amount / max stack size) over everything stored. */
 	public double usedSlots() {
-		if (this.usedSlotsVersion == this.version) {
-			return this.usedSlotsCache;
-		}
-
-		double used = 0;
-		for (ItemStack[] slots : this.modules.values()) {
-			for (ItemStack stack : slots) {
-				if (!stack.isEmpty()) {
-					used += (double) stack.getCount() / stack.getMaxStackSize();
-				}
-			}
-		}
-
-		this.usedSlotsCache = used;
-		this.usedSlotsVersion = this.version;
-		return used;
+		return (double) this.usedUnits / UNITS_PER_STACK;
 	}
 
+	/** Stacks' worth still free. */
 	public double freeSpace() {
 		return this.totalSlots() - this.usedSlots();
 	}
 
-	/** How full the system is by item amount: each slot counts by how full its stack is (32 of 64 = half a slot). */
+	/** How full the system is by item amount (32 stone is half a stack's worth). */
 	public float percentFull() {
-		int total = this.totalSlots();
-		return total == 0 ? 0F : (float) (this.usedSlots() / total * 100.0);
+		long capacity = this.moduleCapacity() * this.modules.size();
+		return capacity == 0 ? 0F : (float) (this.usedUnits * 100.0 / capacity);
 	}
 
 	// ---------------------------------------------------------------- items
 
 	public boolean containsItem(Item item) {
-		return this.typeSlots.containsKey(item);
+		return this.typeKeys.containsKey(item);
 	}
 
 	/** Inserts as much of the stack as fits. Returns what did not fit. The argument is not modified. */
@@ -423,158 +453,122 @@ public final class StorageSystem {
 			return ItemStack.EMPTY;
 		}
 
-		ItemStack remaining = stack.copy();
-		int startCount = remaining.getCount();
-
-		// First top up stacks of the same item (skipped when none are stored).
-		if (this.containsItem(remaining.getItem()) && remaining.isStackable()) {
-			topUp:
-			for (ItemStack[] slots : this.modules.values()) {
-				for (ItemStack slot : slots) {
-					if (!slot.isEmpty() && ItemStack.isSameItemSameComponents(slot, remaining)) {
-						int room = slot.getMaxStackSize() - slot.getCount();
-						if (room > 0) {
-							int moved = Math.min(room, remaining.getCount());
-							slot.grow(moved);
-							remaining.shrink(moved);
-							if (remaining.isEmpty()) {
-								break topUp;
-							}
-						}
-					}
-				}
-			}
-		}
-
-		// Then fill empty slots (skipped when the system is full).
-		if (!remaining.isEmpty() && this.emptySlotCount > 0) {
-			fill:
-			for (ItemStack[] slots : this.modules.values()) {
-				for (int i = 0; i < slots.length; i++) {
-					if (slots[i].isEmpty()) {
-						int moved = Math.min(remaining.getMaxStackSize(), remaining.getCount());
-						slots[i] = remaining.copyWithCount(moved);
-						this.onSlotChanged(null, slots[i].getItem());
-						remaining.shrink(moved);
-						if (remaining.isEmpty() || this.emptySlotCount == 0) {
-							break fill;
-						}
-					}
-				}
-			}
-		}
-
-		if (remaining.getCount() != startCount) {
+		long moved = this.insertAmount(stack, stack.getCount(), null);
+		if (moved > 0) {
 			this.markChanged();
 		}
 
-		return remaining.isEmpty() ? ItemStack.EMPTY : remaining;
+		return moved == stack.getCount() ? ItemStack.EMPTY : stack.copyWithCount(stack.getCount() - (int) moved);
 	}
 
-	/** Takes up to {@code amount} items matching the prototype (item and components). Partial stacks go first. */
-	public ItemStack extract(ItemStack prototype, int amount) {
-		if (prototype.isEmpty() || amount <= 0 || !this.containsItem(prototype.getItem())) {
-			return ItemStack.EMPTY;
-		}
-
-		record SlotRef(ItemStack[] slots, int index) {
-		}
-
-		List<SlotRef> matches = new ArrayList<>();
-		for (ItemStack[] slots : this.modules.values()) {
-			for (int i = 0; i < slots.length; i++) {
-				if (!slots[i].isEmpty() && ItemStack.isSameItemSameComponents(slots[i], prototype)) {
-					matches.add(new SlotRef(slots, i));
-				}
-			}
-		}
-
-		matches.sort(Comparator.comparingInt(ref -> ref.slots()[ref.index()].getCount()));
-		ItemStack result = ItemStack.EMPTY;
-		for (SlotRef ref : matches) {
-			if (result.getCount() >= amount) {
-				break;
-			}
-
-			ItemStack slot = ref.slots()[ref.index()];
-			int take = Math.min(amount - result.getCount(), slot.getCount());
-			if (result.isEmpty()) {
-				result = slot.copyWithCount(take);
-			} else {
-				result.grow(take);
-			}
-
-			Item item = slot.getItem();
-			slot.shrink(take);
-			if (slot.isEmpty()) {
-				ref.slots()[ref.index()] = ItemStack.EMPTY;
-				this.onSlotChanged(item, null);
-			}
-		}
-
-		if (!result.isEmpty()) {
-			this.markChanged();
-		}
-
-		return result;
-	}
-
-	public long count(ItemStack prototype) {
-		long total = 0;
-		if (!this.containsItem(prototype.getItem())) {
+	/**
+	 * Adds up to {@code amount} of the item, filling modules that already hold it first, then any module
+	 * with room. Skips {@code except}. Returns how many were added. Does not publish the change.
+	 */
+	long insertAmount(ItemStack item, long amount, Module except) {
+		if (amount <= 0) {
 			return 0;
 		}
 
-		for (ItemStack[] slots : this.modules.values()) {
-			for (ItemStack stack : slots) {
-				if (!stack.isEmpty() && ItemStack.isSameItemSameComponents(stack, prototype)) {
-					total += stack.getCount();
+		long cost = unitCost(item);
+		long capacity = this.moduleCapacity();
+		long left = amount;
+		if (this.totals.containsKey(item)) {
+			for (Module module : this.modules.values()) {
+				if (left == 0) {
+					break;
+				}
+
+				if (module != except && module.items.containsKey(item)) {
+					left -= this.fill(module, item, left, cost, capacity);
 				}
 			}
 		}
 
-		return total;
+		for (Module module : this.modules.values()) {
+			if (left == 0) {
+				break;
+			}
+
+			if (module != except) {
+				left -= this.fill(module, item, left, cost, capacity);
+			}
+		}
+
+		return amount - left;
 	}
 
-	/** Every distinct item (item + components) in the system with its total count, in storage order. */
+	private long fill(Module module, ItemStack item, long amount, long cost, long capacity) {
+		long room = (capacity - module.used) / cost;
+		long moved = Math.min(room, amount);
+		if (moved <= 0) {
+			return 0;
+		}
+
+		this.change(module, item, moved);
+		return moved;
+	}
+
+	/** Takes up to {@code amount} items matching the prototype (item and components). */
+	public ItemStack extract(ItemStack prototype, int amount) {
+		long taken = this.extractAmount(prototype, amount);
+		if (taken <= 0) {
+			return ItemStack.EMPTY;
+		}
+
+		this.markChanged();
+		return prototype.copyWithCount((int) taken);
+	}
+
+	/** Removes up to {@code amount} of the item, from any modules. Returns how many. Does not publish the change. */
+	long extractAmount(ItemStack prototype, long amount) {
+		if (prototype.isEmpty() || amount <= 0 || !this.totals.containsKey(prototype)) {
+			return 0;
+		}
+
+		long left = amount;
+		for (Module module : this.modules.values()) {
+			if (left == 0) {
+				break;
+			}
+
+			long have = module.items.getLong(prototype);
+			if (have > 0) {
+				long take = Math.min(have, left);
+				this.change(module, prototype, -take);
+				left -= take;
+			}
+		}
+
+		return amount - left;
+	}
+
+	public long count(ItemStack prototype) {
+		return this.totals.getLong(prototype);
+	}
+
+	/** Every distinct item (item + components) in the system with its total count, in arrival order. */
 	public List<StoredEntry> aggregate() {
 		if (this.aggregateCache == null) {
-			this.aggregateCache = List.copyOf(this.computeAggregate());
+			List<StoredEntry> result = new ArrayList<>(this.totals.size());
+			for (var entry : this.totals.object2LongEntrySet()) {
+				result.add(new StoredEntry(entry.getKey().copy(), entry.getLongValue()));
+			}
+
+			this.aggregateCache = List.copyOf(result);
 		}
 
 		return this.aggregateCache;
 	}
 
-	private List<StoredEntry> computeAggregate() {
-		Object2LongOpenCustomHashMap<ItemStack> counts = new Object2LongOpenCustomHashMap<>(ITEM_AND_COMPONENTS);
-		List<ItemStack> order = new ArrayList<>();
-		for (ItemStack[] slots : this.modules.values()) {
-			for (ItemStack stack : slots) {
-				if (stack.isEmpty()) {
-					continue;
-				}
-
-				if (!counts.containsKey(stack)) {
-					ItemStack key = stack.copyWithCount(1);
-					order.add(key);
-					counts.put(key, 0L);
-				}
-
-				counts.addTo(stack, stack.getCount());
-			}
-		}
-
-		List<StoredEntry> result = new ArrayList<>(order.size());
-		for (ItemStack key : order) {
-			result.add(new StoredEntry(key, counts.getLong(key)));
-		}
-
-		return result;
+	/** Distinct items (item + components) currently stored, in arrival order. Do not modify. */
+	Set<ItemStack> storedKeys() {
+		return this.totals.keySet();
 	}
 
 	/** Distinct item types in the system, in storage order. */
 	public Set<Item> presentItems() {
-		return this.typeSlots.keySet();
+		return this.typeKeys.keySet();
 	}
 
 	// ---------------------------------------------------------------- tabs

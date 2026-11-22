@@ -134,7 +134,7 @@ public final class StorageSystemManager extends SavedData {
 			target = pickWinner(new ArrayList<>(touching), level.getRandom());
 		}
 
-		target.modules.put(key, StorageSystem.emptySlots(target.slotsPerModule()));
+		target.modules.put(key, new StorageSystem.Module());
 		target.modulesChanged();
 		this.byPos.put(key, target);
 		target.markChanged();
@@ -177,7 +177,7 @@ public final class StorageSystemManager extends SavedData {
 				}
 			}
 
-			// Merging only adds capacity: every module keeps its own slots, so nothing can overflow.
+			// Merging only adds capacity: every module keeps its own contents, so nothing can overflow.
 			for (var entry : other.modules.long2ObjectEntrySet()) {
 				winner.modules.put(entry.getLongKey(), entry.getValue());
 				this.byPos.put(entry.getLongKey(), winner);
@@ -215,13 +215,19 @@ public final class StorageSystemManager extends SavedData {
 			return;
 		}
 
-		ItemStack[] removedSlots = system.modules.remove(key);
+		StorageSystem.Module removed = system.modules.remove(key);
 		system.modulesChanged();
 		List<ItemStack> leftovers = new ArrayList<>();
-		if (removedSlots != null) {
-			for (ItemStack stack : removedSlots) {
-				if (!stack.isEmpty()) {
-					leftovers.add(stack);
+		if (removed != null) {
+			// The broken module's contents, as normal-sized stacks.
+			for (var entry : removed.items.object2LongEntrySet()) {
+				ItemStack item = entry.getKey();
+				long left = entry.getLongValue();
+				int max = Math.max(1, item.getMaxStackSize());
+				while (left > 0) {
+					int count = (int) Math.min(max, left);
+					leftovers.add(item.copyWithCount(count));
+					left -= count;
 				}
 			}
 		}
@@ -238,7 +244,7 @@ public final class StorageSystemManager extends SavedData {
 
 		List<LongSet> groups = connectedGroups(system.modules.keySet());
 		if (groups.size() == 1) {
-			// No split: the broken module's items move into free slots, the rest drops.
+			// No split: the broken module's items move into the free space, the rest drops.
 			List<ItemStack> overflow = new ArrayList<>();
 			for (ItemStack stack : leftovers) {
 				ItemStack rest = system.insert(stack);
@@ -269,8 +275,8 @@ public final class StorageSystemManager extends SavedData {
 
 		for (StorageSystem part : parts) {
 			part.modulesChanged();
-			// Upgrades stay with the largest part; the other parts lose Capacity slots they no longer have
-			// (only where the items fit, see applyUpgrades).
+			// Upgrades stay with the largest part; the other parts lose the extra room (modules that end up
+			// over-full keep their items, see applyUpgrades).
 			part.applyUpgrades();
 		}
 

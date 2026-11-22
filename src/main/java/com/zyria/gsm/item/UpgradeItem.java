@@ -14,9 +14,9 @@ public class UpgradeItem extends Item {
 	public enum Type {
 		/** Adds a crafting panel to the storage menu. */
 		CRAFTING(0),
-		/** Capacity Upgrade I: half a row (4 slots) more in every module. */
+		/** Capacity Upgrade I: 4 more stacks of room in every module. */
 		CAPACITY_1(4),
-		/** Capacity Upgrade II: a full row (9 slots) more in every module. */
+		/** Capacity Upgrade II: 9 more stacks of room in every module. */
 		CAPACITY_2(9);
 
 		private final int extraSlots;
