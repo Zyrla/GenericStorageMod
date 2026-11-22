@@ -405,10 +405,10 @@ public final class StorageSystem {
 		return this.totalSlots() - this.usedSlots();
 	}
 
-	/** How full the system is by slots: any slot holding something counts as used, so 100% means no empty slot is left. */
+	/** How full the system is by item amount: each slot counts by how full its stack is (32 of 64 = half a slot). */
 	public float percentFull() {
 		int total = this.totalSlots();
-		return total == 0 ? 0F : (float) (total - this.emptySlotCount) / total * 100.0F;
+		return total == 0 ? 0F : (float) (this.usedSlots() / total * 100.0);
 	}
 
 	// ---------------------------------------------------------------- items
