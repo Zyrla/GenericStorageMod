@@ -66,8 +66,7 @@ modrinth {
     uploadFile.set(loomx.modJar)
     gameVersions.set(mcReleases)
     loaders.set(listOf("fabric"))
-    changelog.set("First release. Storage Modules join into one shared inventory with tabs, search and sorting; " +
-        "disguise them as normal blocks, connect hoppers, and add Crafting and Capacity upgrades.")
+    changelog.set(rootProject.file("CHANGELOG.md").readText())
     dependencies {
         required.project("fabric-api")
     }
