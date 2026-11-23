@@ -70,4 +70,4 @@ Install on both client and server for server support
 
 ## License
 
-The code is under the MIT License, so it is free to use in modpacks. The textures are based on Minecraft's own and belong to Mojang.
+The License is [Here](https://github.com/Zyrla/GenericStorageMod/blob/bb06bc189b3ba89b541a11df8395c20129d6c997/LICENSE)
