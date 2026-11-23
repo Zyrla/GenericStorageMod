@@ -66,11 +66,7 @@ Breaking a module never loses items. Its items move into the rest of the system,
 - Fabric Loader 0.20.1 or newer
 - Fabric API
 
-Install on both the client and the server.
-
-## Building
-
-Run `gradlew buildAndCollect`. The jars for every supported version end up in `build/libs/<mod version>/`.
+Install on both client and server for server support
 
 ## License
 
