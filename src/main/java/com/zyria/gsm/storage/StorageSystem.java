@@ -15,9 +15,12 @@ import java.util.Set;
 import java.util.UUID;
 import com.zyria.gsm.ModConfig;
 import com.zyria.gsm.item.UpgradeItem;
+import net.minecraft.core.Holder;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.StackedItemContents;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
@@ -538,6 +541,34 @@ public final class StorageSystem {
 			out.add(item.copyWithCount(count));
 			amount -= count;
 		}
+	}
+
+	/** Most of one item the recipe finder is told about, so its int counts can't overflow. */
+	public static final int CRAFTING_COUNT_CAP = 100_000;
+
+	/** Tells the recipe finder about every stored item crafting may use (not damaged, enchanted or renamed). */
+	public void fillStackedContents(StackedItemContents contents) {
+		for (var entry : this.totals.object2LongEntrySet()) {
+			ItemStack item = entry.getKey();
+			if (Inventory.isUsableForCrafting(item)) {
+				int count = (int) Math.min(entry.getLongValue(), CRAFTING_COUNT_CAP);
+				contents.accountStack(item.copyWithCount(count), count);
+			}
+		}
+	}
+
+	/**
+	 * Takes up to {@code amount} of the item for the crafting grid, all of one kind (same components) so it
+	 * fits in one slot. Only items crafting may use.
+	 */
+	public ItemStack extractForCrafting(Holder<Item> item, int amount) {
+		for (ItemStack key : this.totals.keySet()) {
+			if (key.is(item) && Inventory.isUsableForCrafting(key)) {
+				return this.extract(key, amount);
+			}
+		}
+
+		return ItemStack.EMPTY;
 	}
 
 	public long count(ItemStack prototype) {

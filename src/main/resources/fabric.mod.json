@@ -18,6 +18,12 @@
 			"com.zyria.gsm.client.GenericStorageModClient"
 		]
 	},
+	"mixins": [
+		{
+			"config": "gsm.client.mixins.json",
+			"environment": "client"
+		}
+	],
 	"depends": {
 		"fabricloader": ">=0.20.1",
 		"minecraft": "${minecraft}",

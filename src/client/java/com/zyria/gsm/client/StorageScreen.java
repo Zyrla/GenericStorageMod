@@ -20,9 +20,18 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.ImageButton;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.gui.screens.recipebook.CraftingRecipeBookComponent;
+import net.minecraft.client.gui.screens.recipebook.RecipeBookComponent;
+import net.minecraft.client.gui.screens.recipebook.RecipeUpdateListener;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.world.inventory.ContainerInput;
+import com.zyria.gsm.mixin.client.RecipeBookComponentInvoker;
+import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.crafting.display.RecipeDisplay;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -39,15 +48,14 @@ import com.mojang.blaze3d.platform.InputConstants;
 
 /**
  * The storage menu, laid out like the Creative inventory: category tabs along the top, a search bar,
- * the selected tab's items in the middle, how full the system is on the right, and the player's
- * inventory at the bottom. Drawn with vanilla textures, so resource packs restyle it too.
+ * the selected tab's items in the middle, the player's inventory at the bottom with the upgrade slots
+ * on a strip beside it, and how full the system is under the menu. Drawn with vanilla textures, so
+ * resource packs restyle it too.
  */
-public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
+public class StorageScreen extends AbstractContainerScreen<StorageMenu> implements RecipeUpdateListener {
 	private static final Identifier MAIN_TEXTURE = Identifier.withDefaultNamespace("textures/gui/container/creative_inventory/tab_item_search.png");
 	private static final Identifier SCROLLER_SPRITE = Identifier.withDefaultNamespace("container/creative_inventory/scroller");
 	private static final Identifier SCROLLER_DISABLED_SPRITE = Identifier.withDefaultNamespace("container/creative_inventory/scroller_disabled");
-	private static final Identifier TAB_SPRITE = Identifier.withDefaultNamespace("recipe_book/tab");
-	private static final Identifier TAB_SELECTED_SPRITE = Identifier.withDefaultNamespace("recipe_book/tab_selected");
 
 	private static final int WIDTH = 195;
 	private static final int HEIGHT = 197;
@@ -56,24 +64,30 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 	private static final int TAB_HEIGHT = 32;
 	private static final int TAB_SPACING = 27;
 	private static final int TAB_Y = -28;
-	// The Crafting upgrade's tab sits on the left; its panel opens to the left of that.
-	private static final Identifier CRAFTING_TEXTURE = Identifier.withDefaultNamespace("textures/gui/container/crafting_table.png");
-	private static final int SIDE_TAB_WIDTH = 35;
-	private static final int SIDE_TAB_HEIGHT = 27;
-	private static final int CRAFT_TAB_X = -32;
+	// The Crafting upgrade's tab sticks out of the right side; its panel opens on the left of the menu.
+	private static final int CRAFT_TAB_RIGHT = WIDTH + 28;
 	private static final int CRAFT_TAB_Y = 4;
-	private static final int CRAFT_PANEL_W = 136;
-	private static final int CRAFT_PANEL_H = 82;
+	private static final int CRAFT_TAB_HEIGHT = 26;
 	/** How far the menu shifts right while the crafting panel is open, so it stays on screen. */
-	private static final int CRAFT_SHIFT = 84;
+	private static final Identifier CRAFTING_TEXTURE = Identifier.withDefaultNamespace("textures/gui/container/crafting_table.png");
+	private static final int CRAFT_SHIFT = 75;
+	/** How far the menu moves down while the crafting panel is open, since the panel is taller than the menu. */
+	private static final int CRAFT_SHIFT_Y = 10;
+	/** Where the recipe book starts, under the crafting grid (relative to the menu's top). */
+	private static final int BOOK_Y = 44;
 	private static final int VISIBLE_TABS = 7;
 	private static final Identifier[] TAB_SPRITES = tabSprites("unselected_");
 	private static final Identifier[] TAB_SELECTED_SPRITES = tabSprites("selected_");
 	private static final int SCROLLER_X = 175;
 	private static final int SCROLLER_Y = 18;
 	private static final int SCROLL_AREA = 90;
-	private static final int SIDE_X = WIDTH + 6;
-	private static final int SIDE_WIDTH = 80;
+	// The upgrade strip sticks out of the right side, beside the inventory.
+	private static final int EXT_RIGHT = WIDTH + 24;
+	private static final int EXT_TOP = 109;
+	private static final int EXT_BOTTOM = 191;
+	// The fullness readout sits under the menu.
+	private static final int FULLNESS_Y = HEIGHT + 3;
+	private static final int FULLNESS_H = 10;
 	// Tab editor panel, drawn over the item area.
 	private static final int PANEL_X = 6;
 	private static final int PANEL_Y = 2;
@@ -84,6 +98,10 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 	private static final int TEXT_LIGHT = 0xFFFFFFFF;
 
 	private EditBox searchBox;
+	/** Vanilla's recipe book, under the crafting grid left of the menu (Crafting upgrade). */
+	private final CraftingRecipeBookComponent recipeBook;
+	/** Opens and closes the recipe book, under the crafting arrow like on a crafting table. */
+	private ImageButton recipeBookButton;
 	private Button settingsButton;
 	// Settings panel (opened with the gear button). Shares the overlay area with the tab editor.
 	private boolean settingsOpen;
@@ -91,6 +109,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 	private Button settingsEditTab;
 	private Button autoFillButton;
 	private Button settingsDone;
+	private Button fullnessButton;
 	private Button helpButton;
 	private Button rotateButton;
 	// Cached "can the disguise turn?" answer, recomputed only when the disguise item changes.
@@ -121,6 +140,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
 	public StorageScreen(StorageMenu menu, Inventory inventory, Component title) {
 		super(menu, inventory, title, WIDTH, HEIGHT);
+		this.recipeBook = new CraftingRecipeBookComponent(menu);
 	}
 
 	// ---------------------------------------------------------------- setup
@@ -132,7 +152,10 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 		super.init();
 		if (this.menu.craftingOpen) {
 			this.leftPos += CRAFT_SHIFT;
+			this.topPos += CRAFT_SHIFT_Y;
 		}
+
+		this.initRecipeBook();
 		String previousSearch = this.searchBox != null ? this.searchBox.getValue() : "";
 
 		this.searchBox = new EditBox(this.font, this.leftPos + 82, this.topPos + 6, 80, 9, Component.translatable("itemGroup.search"));
@@ -161,11 +184,6 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 		// Sort button right against the left end of the search bar (the search field starts at x = 80).
 		this.sortButton = this.addRenderableWidget(Button.builder(Component.literal("\u21C5"), b -> this.cycleSortMode())
 			.bounds(this.leftPos + 64, this.topPos + 3, 14, 12)
-			.build());
-		this.helpButton = this.addRenderableWidget(Button.builder(Component.literal("?"), b -> {
-			})
-			.bounds(columnX, this.topPos + 172, 18, 18)
-			.tooltip(Tooltip.create(Component.translatable("gui.gsm.help")))
 			.build());
 
 		int px = this.leftPos + PANEL_X;
@@ -204,9 +222,58 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 			.build());
 		this.settingsDone = this.addRenderableWidget(Button.builder(Component.translatable("gui.done"), b -> this.stopEditing())
 			.bounds(px + 4, py + 91, 56, 16).build());
+		this.fullnessButton = this.addRenderableWidget(Button.builder(Component.empty(), b -> {
+				ClientSettings.setShowFullness(!ClientSettings.showFullness());
+				this.updateEditorWidgets();
+			})
+			.bounds(px + 63, py + 91, 96, 16)
+			.tooltip(Tooltip.create(Component.translatable("gui.gsm.fullness.tooltip")))
+			.build());
+		// Help sits in the settings panel's bottom-right corner; hovering it shows the tips.
+		this.helpButton = this.addRenderableWidget(Button.builder(Component.literal("?"), b -> {
+			})
+			.bounds(px + PANEL_W - 20, py + 91, 16, 16)
+			.tooltip(Tooltip.create(Component.translatable("gui.gsm.help")))
+			.build());
 
 		this.updateEditorWidgets();
 		this.refresh();
+	}
+
+	/** Whether the recipe book is showing: the crafting panel is open and the book is switched on. */
+	private boolean bookShown() {
+		return this.menu.craftingOpen && this.menu.hasCraftingUpgrade() && this.recipeBook.isVisible();
+	}
+
+	/**
+	 * Sets up vanilla's recipe book under the crafting grid. The book places itself from the screen size it
+	 * is given, so it gets a made-up size that puts it exactly there. It is open or closed the same as the
+	 * crafting table's book (the button under the crafting arrow switches it).
+	 */
+	private void initRecipeBook() {
+		int x = this.leftPos + StorageMenu.CRAFT_PANEL_X;
+		int y = this.topPos + BOOK_Y;
+		// The book puts itself at ((width - 147) / 2 - 86, (height - 166) / 2).
+		this.recipeBook.init(2 * (x + 86) + RecipeBookComponent.IMAGE_WIDTH, 2 * y + RecipeBookComponent.IMAGE_HEIGHT, this.minecraft, false);
+		this.addWidget(this.recipeBook);
+		int gx = x;
+		int gy = this.topPos + StorageMenu.CRAFT_PANEL_Y;
+		this.recipeBookButton = this.addRenderableWidget(new ImageButton(gx + 72, gy + 50, 20, 18, RecipeBookComponent.RECIPE_BUTTON_SPRITES,
+			b -> this.recipeBook.toggleVisibility()));
+		this.recipeBookButton.visible = this.menu.craftingOpen && this.menu.hasCraftingUpgrade();
+	}
+
+	@Override
+	public boolean charTyped(CharacterEvent event) {
+		return !this.editing && this.bookShown() && this.recipeBook.charTyped(event) || super.charTyped(event);
+	}
+
+	@Override
+	protected void slotClicked(Slot slot, int slotId, int buttonNum, ContainerInput input) {
+		super.slotClicked(slot, slotId, buttonNum, input);
+		if (this.bookShown()) {
+			this.recipeBook.slotClicked(slot);
+		}
 	}
 
 	private void openSettings() {
@@ -227,11 +294,17 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 			// The setting lives on the server; show whatever it currently is.
 			this.autoFillButton.setMessage(Component.translatable(this.menu.craftingAutoFill() ? "gui.gsm.auto_fill.on" : "gui.gsm.auto_fill.off"));
 		}
+		this.recipeBook.tick();
 		if (this.menu.craftingOpen && !this.menu.hasCraftingUpgrade()) {
 			this.setCraftingOpen(false); // the Crafting upgrade was taken out
 		}
 		if (this.menu.viewRevision != this.seenRevision) {
 			this.seenRevision = this.menu.viewRevision;
+			if (this.bookShown()) {
+				// Storage changed: recount which recipes can be made.
+				((RecipeBookComponentInvoker) this.recipeBook).gsm$updateStackedContents();
+			}
+
 			if (this.selectNewTab && this.menu.tabs.size() > this.tabCountBeforeCreate) {
 				this.selectNewTab = false;
 				StorageTab newest = this.menu.tabs.get(this.menu.tabs.size() - 1);
@@ -416,13 +489,14 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
 	private boolean inCraftTab(double mx, double my) {
 		return this.menu.hasCraftingUpgrade()
-			&& mx >= this.leftPos + CRAFT_TAB_X && mx < this.leftPos && my >= this.topPos + CRAFT_TAB_Y && my < this.topPos + CRAFT_TAB_Y + SIDE_TAB_HEIGHT;
+			&& mx >= this.leftPos + WIDTH && mx < this.leftPos + CRAFT_TAB_RIGHT && my >= this.topPos + CRAFT_TAB_Y && my < this.topPos + CRAFT_TAB_Y + CRAFT_TAB_HEIGHT;
 	}
 
 	private boolean inCraftPanel(double mx, double my) {
 		int x = this.leftPos + StorageMenu.CRAFT_PANEL_X;
-		int y = this.topPos + StorageMenu.CRAFT_PANEL_Y;
-		return this.menu.craftingOpen && mx >= x && mx < x + CRAFT_PANEL_W && my >= y && my < y + CRAFT_PANEL_H;
+		int bottom = this.topPos + (this.bookShown() ? BOOK_Y + RecipeBookComponent.IMAGE_HEIGHT : BOOK_Y);
+		return this.menu.craftingOpen && mx >= x - (this.bookShown() ? 30 : 0) && mx < x + RecipeBookComponent.IMAGE_WIDTH
+			&& my >= this.topPos + StorageMenu.CRAFT_PANEL_Y && my < bottom;
 	}
 
 	private void setCraftingOpen(boolean open) {
@@ -432,8 +506,13 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 		}
 	}
 
-	private boolean inSidePanel(double mx, double my) {
-		return mx >= this.leftPos + WIDTH && mx < this.leftPos + SIDE_X + SIDE_WIDTH && my >= this.topPos && my < this.topPos + 90;
+	private boolean inUpgradeStrip(double mx, double my) {
+		return mx >= this.leftPos + WIDTH && mx < this.leftPos + EXT_RIGHT && my >= this.topPos + EXT_TOP && my < this.topPos + EXT_BOTTOM;
+	}
+
+	private boolean inFullness(double mx, double my) {
+		return ClientSettings.showFullness() && mx >= this.leftPos && mx < this.leftPos + WIDTH
+			&& my >= this.topPos + HEIGHT && my < this.topPos + FULLNESS_Y + FULLNESS_H;
 	}
 
 	private boolean inScroller(double mx, double my) {
@@ -450,7 +529,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
 	@Override
 	protected boolean hasClickedOutside(double mx, double my, int xo, int yo) {
-		return super.hasClickedOutside(mx, my, xo, yo) && !this.inTabColumn(mx, my) && !this.inSidePanel(mx, my)
+		return super.hasClickedOutside(mx, my, xo, yo) && !this.inTabColumn(mx, my) && !this.inUpgradeStrip(mx, my) && !this.inFullness(mx, my)
 			&& !this.inCraftTab(mx, my) && !this.inCraftPanel(mx, my);
 	}
 
@@ -475,6 +554,9 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 			if (this.inEditorPanel(mx, my)) {
 				return true;
 			}
+		} else if (this.bookShown() && this.recipeBook.mouseClicked(event, doubleClick)) {
+			this.setFocused(this.recipeBook);
+			return true;
 		} else {
 			int arrow = this.tabArrowAt(mx, my);
 			if (arrow != 0) {
@@ -534,7 +616,8 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 		return listener == this.nameBox || listener == this.iconBox || listener == this.rulesBox
 			|| listener == this.sortingButton || listener == this.saveButton || listener == this.cancelButton
 			|| listener == this.removeButton || listener == this.settingsNewTab || listener == this.settingsEditTab
-			|| listener == this.autoFillButton || listener == this.settingsDone;
+			|| listener == this.autoFillButton || listener == this.settingsDone || listener == this.fullnessButton
+			|| listener == this.helpButton;
 	}
 
 	@Override
@@ -550,6 +633,10 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 	public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
 		if (this.scrolling) {
 			this.updateScroll(event.y());
+			return true;
+		}
+
+		if (this.bookShown() && this.recipeBook.mouseDragged(event, dx, dy)) {
 			return true;
 		}
 
@@ -625,6 +712,10 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 			if (!event.isEscape()) {
 				return true;
 			}
+		}
+
+		if (this.bookShown() && this.recipeBook.keyPressed(event)) {
+			return true;
 		}
 
 		if (event.key() == InputConstants.KEY_DELETE) {
@@ -748,13 +839,15 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 		this.autoFillButton.visible = this.settingsOpen && this.menu.hasCraftingUpgrade();
 		this.autoFillButton.setMessage(Component.translatable(this.menu.craftingAutoFill() ? "gui.gsm.auto_fill.on" : "gui.gsm.auto_fill.off"));
 		this.settingsDone.visible = this.settingsOpen;
+		this.fullnessButton.visible = this.settingsOpen;
+		this.fullnessButton.setMessage(Component.translatable(ClientSettings.showFullness() ? "gui.gsm.fullness.on" : "gui.gsm.fullness.off"));
+		this.helpButton.visible = this.settingsOpen;
 		this.removeButton.active = tab == null || tab.kind != StorageTab.Kind.UNSORTED;
 		this.removeButton.setMessage(Component.translatable(this.removeArmed ? "gui.gsm.confirm" : "gui.gsm.remove_tab"));
 		this.sortingButton.setMessage(Component.translatable(this.editSorting ? "gui.gsm.sorting.on" : "gui.gsm.sorting.off"));
 
 		this.searchBox.setVisible(!this.editing);
 		this.settingsButton.active = !this.editing;
-		this.helpButton.active = !this.editing;
 		this.sortButton.active = !this.editing && this.selectedTab() != null;
 		StorageTab sortTab = this.selectedTab();
 		if (sortTab != null) {
@@ -772,11 +865,12 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 		int y = this.topPos;
 
 		this.extractTabs(graphics, false);
-		this.extractCraftingTab(graphics);
+		this.extractCraftingTab(graphics, false);
 		this.extractPanel(graphics, x, y);
+		this.extractCraftingTab(graphics, true);
 		this.extractTabs(graphics, true);
 		if (this.menu.craftingOpen) {
-			this.extractCraftingPanel(graphics);
+			this.extractCraftingGrid(graphics);
 		}
 
 		int scrollerY = y + SCROLLER_Y + (int) ((SCROLL_AREA - 17) * this.scrollOffs);
@@ -793,6 +887,8 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 			graphics.outline(px, py, PANEL_W, PANEL_H, 0xFFA0A0A0);
 			if (this.settingsOpen) {
 				graphics.text(this.font, Component.translatable("gui.gsm.settings"), px + 4, py + 3, TEXT_LIGHT, false);
+				Component modules = Component.translatable("gui.gsm.modules", this.menu.modules);
+				graphics.text(this.font, modules, px + PANEL_W - 4 - this.font.width(modules), py + 3, 0xFFC0C0C0, false);
 				graphics.text(this.font, Component.translatable("gui.gsm.settings.tabs"), px + 4, py + 16, 0xFFC0C0C0, false);
 				if (this.menu.hasCraftingUpgrade()) {
 					graphics.text(this.font, Component.translatable("gui.gsm.settings.crafting"), px + 4, py + 48, 0xFFC0C0C0, false);
@@ -822,38 +918,79 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 	 */
 	private void extractPanel(GuiGraphicsExtractor graphics, int x, int y) {
 		// Search bar, 5 item rows and the scrollbar track (cut short to the item area).
-		this.blitMain(graphics, x, y, 0, 0, WIDTH, 107);
+		blitMain(graphics, x, y, 0, 0, WIDTH, 107);
 		this.extractBody(graphics, x, y + 107, 7);
-		this.blitMain(graphics, x + 174, y + 107, 174, 128, 14, 1);
+		blitMain(graphics, x + 174, y + 107, 174, 128, 14, 1);
 		// Three inventory rows, made from item-area rows.
 		this.extractBody(graphics, x, y + 114, 54);
-		this.blitMain(graphics, x + 8, y + 114, 8, 17, 162, 54);
+		blitMain(graphics, x + 8, y + 114, 8, 17, 162, 54);
 		this.extractBody(graphics, x, y + 168, 4);
 		// Hotbar row and the bottom edge (leaving out the scrollbar track).
-		this.blitMain(graphics, x, y + 172, 0, 111, 174, 25);
-		this.extractFill(graphics, x + 174, y + 172, 14, 18);
-		this.blitMain(graphics, x + 174, y + 190, 174, 129, 14, 7);
-		this.blitMain(graphics, x + 188, y + 172, 188, 111, 7, 25);
+		blitMain(graphics, x, y + 172, 0, 111, 174, 25);
+		extractFill(graphics, x + 174, y + 172, 14, 18);
+		blitMain(graphics, x + 174, y + 190, 174, 129, 14, 7);
+		blitMain(graphics, x + 188, y + 172, 188, 111, 7, 25);
 		// Disguise slot frame.
-		this.blitMain(graphics, x + StorageMenu.DISGUISE_X - 1, y + StorageMenu.DISGUISE_Y - 1, 8, 17, 18, 18);
+		blitMain(graphics, x + StorageMenu.DISGUISE_X - 1, y + StorageMenu.DISGUISE_Y - 1, 8, 17, 18, 18);
+		this.extractUpgradeStrip(graphics, x, y);
+	}
+
+	/**
+	 * The strip on the right holding the upgrade slots, joined onto the menu's right edge. Its edges and
+	 * corners are cut from the same texture's borders, so it matches the menu (and resource packs).
+	 */
+	private void extractUpgradeStrip(GuiGraphicsExtractor graphics, int x, int y) {
+		this.extractStrip(graphics, x, y + EXT_TOP, y + EXT_BOTTOM, x + EXT_RIGHT);
+		for (int i = 0; i < StorageSystem.UPGRADE_SLOTS; i++) {
+			blitMain(graphics, x + StorageMenu.UPGRADE_X - 1, y + StorageMenu.UPGRADE_Y - 1 + i * 18, 8, 17, 18, 18);
+		}
+	}
+
+	/** A strip sticking out of the menu's right side (menu at {@code x}), open into the menu. */
+	private void extractStrip(GuiGraphicsExtractor graphics, int x, int top, int bottom, int right) {
+		// Top and bottom edges start at the menu's outer border column, so the outlines join up.
+		blitMain(graphics, x + 194, top, 100, 0, right - 3 - (x + 194), 3);
+		blitMain(graphics, x + 194, bottom - 3, 100, 133, right - 3 - (x + 194), 3);
+		// Covers the menu's right border between them, opening the strip into the menu.
+		extractFill(graphics, x + 192, top + 3, right - 3 - (x + 192), bottom - top - 6);
+		blitMain(graphics, right - 3, top + 3, 192, 20, 3, bottom - top - 6);
+		blitMain(graphics, right - 3, top, 192, 0, 3, 3);
+		blitMain(graphics, right - 3, bottom - 3, 192, 133, 3, 3);
+	}
+
+	/**
+	 * The crafting grid on top of the recipe book: label, 3 x 3 slot frames, arrow and the big result slot
+	 * (those two from the crafting table's texture). Its bottom edge tucks under the book.
+	 */
+	private void extractCraftingGrid(GuiGraphicsExtractor graphics) {
+		int x = this.leftPos + StorageMenu.CRAFT_PANEL_X;
+		int y = this.topPos + StorageMenu.CRAFT_PANEL_Y;
+		extractBox(graphics, x, y, RecipeBookComponent.IMAGE_WIDTH, BOOK_Y - StorageMenu.CRAFT_PANEL_Y);
+		graphics.text(this.font, Component.translatable("container.crafting"), x + 8, y + 4, TEXT_DARK, false);
+		for (int i = 0; i < 9; i++) {
+			blitMain(graphics, x + 10 + i % 3 * 18, y + 14 + i / 3 * 18, 8, 17, 18, 18);
+		}
+
+		graphics.blit(RenderPipelines.GUI_TEXTURED, CRAFTING_TEXTURE, x + 71, y + 33, 90.0F, 35.0F, 22, 15, 256, 256);
+		graphics.blit(RenderPipelines.GUI_TEXTURED, CRAFTING_TEXTURE, x + 100, y + 28, 119.0F, 30.0F, 26, 26, 256, 256);
 	}
 
 	/** A plain stretch of panel: left and right borders with light gray between. */
 	private void extractBody(GuiGraphicsExtractor graphics, int x, int y, int height) {
-		this.blitMain(graphics, x, y, 0, 20, 3, height);
-		this.blitMain(graphics, x + 192, y, 192, 20, 3, height);
-		this.extractFill(graphics, x + 3, y, 189, height);
+		blitMain(graphics, x, y, 0, 20, 3, height);
+		blitMain(graphics, x + 192, y, 192, 20, 3, height);
+		extractFill(graphics, x + 3, y, 189, height);
 	}
 
 	/**
 	 * Fills an area with the panel's background color, stretched from one pixel of the texture (between
 	 * the left border and the item grid), so resource packs that recolor menus recolor this too.
 	 */
-	private void extractFill(GuiGraphicsExtractor graphics, int x, int y, int width, int height) {
+	static void extractFill(GuiGraphicsExtractor graphics, int x, int y, int width, int height) {
 		graphics.blit(RenderPipelines.GUI_TEXTURED, MAIN_TEXTURE, x, y, 4.0F, 20.0F, width, height, 1, 1, 256, 256);
 	}
 
-	private void blitMain(GuiGraphicsExtractor graphics, int x, int y, int u, int v, int width, int height) {
+	static void blitMain(GuiGraphicsExtractor graphics, int x, int y, int u, int v, int width, int height) {
 		graphics.blit(RenderPipelines.GUI_TEXTURED, MAIN_TEXTURE, x, y, (float) u, (float) v, width, height, 256, 256);
 	}
 
@@ -896,30 +1033,51 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 		}
 	}
 
-	/** The Crafting upgrade's tab on the left side of the menu (only with the upgrade installed). */
-	private void extractCraftingTab(GuiGraphicsExtractor graphics) {
-		if (!this.menu.hasCraftingUpgrade()) {
+	/**
+	 * The Crafting upgrade's tab on the right side of the menu (only with the upgrade installed). Closed,
+	 * it is a separate box drawn behind the menu; open, it is drawn after the menu and joins onto it.
+	 */
+	private void extractCraftingTab(GuiGraphicsExtractor graphics, boolean afterPanel) {
+		boolean open = this.menu.craftingOpen;
+		if (!this.menu.hasCraftingUpgrade() || open != afterPanel) {
 			return;
 		}
 
-		boolean open = this.menu.craftingOpen;
-		int tx = this.leftPos + CRAFT_TAB_X - (open ? 2 : 0);
+		int x = this.leftPos;
 		int ty = this.topPos + CRAFT_TAB_Y;
-		graphics.blitSprite(RenderPipelines.GUI_TEXTURED, open ? TAB_SELECTED_SPRITE : TAB_SPRITE, tx, ty, SIDE_TAB_WIDTH, SIDE_TAB_HEIGHT);
-		graphics.item(CRAFTING_ICON, tx + 9, ty + 5);
+		if (open) {
+			this.extractStrip(graphics, x, ty, ty + CRAFT_TAB_HEIGHT, x + CRAFT_TAB_RIGHT);
+		} else {
+			extractBox(graphics, x + WIDTH - 4, ty, CRAFT_TAB_RIGHT - 2 - (WIDTH - 4), CRAFT_TAB_HEIGHT);
+		}
+
+		graphics.item(CRAFTING_ICON, x + WIDTH + (open ? 5 : 2), ty + 5);
 	}
 
-	/** The crafting panel, built from the vanilla crafting table texture (left edge, grid area, right edge). */
-	private void extractCraftingPanel(GuiGraphicsExtractor graphics) {
-		int x = this.leftPos + StorageMenu.CRAFT_PANEL_X;
-		int y = this.topPos + StorageMenu.CRAFT_PANEL_Y;
-		graphics.blit(RenderPipelines.GUI_TEXTURED, CRAFTING_TEXTURE, x, y, 0.0F, 0.0F, 4, 78, 256, 256);
-		graphics.blit(RenderPipelines.GUI_TEXTURED, CRAFTING_TEXTURE, x + 4, y, 24.0F, 0.0F, 128, 78, 256, 256);
-		graphics.blit(RenderPipelines.GUI_TEXTURED, CRAFTING_TEXTURE, x + 132, y, 172.0F, 0.0F, 4, 78, 256, 256);
-		graphics.blit(RenderPipelines.GUI_TEXTURED, CRAFTING_TEXTURE, x, y + 78, 0.0F, 162.0F, 4, 4, 256, 256);
-		graphics.blit(RenderPipelines.GUI_TEXTURED, CRAFTING_TEXTURE, x + 4, y + 78, 24.0F, 162.0F, 128, 4, 256, 256);
-		graphics.blit(RenderPipelines.GUI_TEXTURED, CRAFTING_TEXTURE, x + 132, y + 78, 172.0F, 162.0F, 4, 4, 256, 256);
-		graphics.text(this.font, Component.translatable("container.crafting"), x + 8, y + 6, TEXT_DARK, false);
+	/**
+	 * A whole bordered box of any size, cut from the menu texture's corners and edges. Long edges are
+	 * drawn in pieces, since the texture's plain edge runs are only so long.
+	 */
+	static void extractBox(GuiGraphicsExtractor graphics, int x, int y, int width, int height) {
+		int w = width - 6;
+		int h = height - 6;
+		blitMain(graphics, x, y, 0, 0, 3, 3);
+		blitMain(graphics, x + width - 3, y, 192, 0, 3, 3);
+		blitMain(graphics, x, y + height - 3, 0, 133, 3, 3);
+		blitMain(graphics, x + width - 3, y + height - 3, 192, 133, 3, 3);
+		for (int done = 0; done < w; done += 80) {
+			int piece = Math.min(80, w - done);
+			blitMain(graphics, x + 3 + done, y, 20, 0, piece, 3);
+			blitMain(graphics, x + 3 + done, y + height - 3, 20, 133, piece, 3);
+		}
+
+		for (int done = 0; done < h; done += 100) {
+			int piece = Math.min(100, h - done);
+			blitMain(graphics, x, y + 3 + done, 0, 20, 3, piece);
+			blitMain(graphics, x + width - 3, y + 3 + done, 192, 20, 3, piece);
+		}
+
+		extractFill(graphics, x + 3, y + 3, w, h);
 	}
 
 	private void extractGrid(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
@@ -946,25 +1104,59 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 		return mouseX >= sx && mouseX < sx + 18 && mouseY >= sy && mouseY < sy + 18;
 	}
 
+	/** "22% full" and a bar, under the menu (unless hidden in the settings). */
 	private void extractCapacity(GuiGraphicsExtractor graphics) {
-		int x = this.leftPos + SIDE_X;
-		int y = this.topPos + 4;
-		int percent = Math.round(this.menu.percentFull);
-		graphics.text(this.font, Component.translatable("gui.gsm.percent_full", percent), x, y, TEXT_LIGHT, true);
-
-		int barY = y + 12;
-		graphics.fill(x, barY, x + SIDE_WIDTH, barY + 6, 0xFF000000);
-		int filled = Math.round((SIDE_WIDTH - 2) * Mth.clamp(this.menu.percentFull / 100.0F, 0.0F, 1.0F));
-		int color = percent >= 90 ? 0xFFD03030 : percent >= 70 ? 0xFFE0B030 : 0xFF40B040;
-		graphics.fill(x + 1, barY + 1, x + 1 + filled, barY + 5, color);
-
-		graphics.text(this.font, Component.translatable("gui.gsm.modules", this.menu.modules), x, barY + 10, 0xFFC0C0C0, true);
-
-		// Upgrade slots (2 x 2) under the capacity readout.
-		graphics.text(this.font, Component.translatable("gui.gsm.upgrades"), x, this.topPos + StorageMenu.UPGRADE_Y - 11, TEXT_LIGHT, true);
-		for (int i = 0; i < StorageSystem.UPGRADE_SLOTS; i++) {
-			this.blitMain(graphics, this.leftPos + StorageMenu.UPGRADE_X - 1 + (i % 2) * 18, this.topPos + StorageMenu.UPGRADE_Y - 1 + (i / 2) * 18, 8, 17, 18, 18);
+		if (!ClientSettings.showFullness()) {
+			return;
 		}
+
+		int x = this.leftPos + 2;
+		int y = this.topPos + FULLNESS_Y;
+		int percent = Math.round(this.menu.percentFull);
+		Component label = Component.translatable("gui.gsm.percent_full", percent);
+		graphics.text(this.font, label, x, y + 1, TEXT_LIGHT, true);
+
+		int barX = x + this.font.width(label) + 5;
+		int barEnd = this.leftPos + WIDTH - 2;
+		int barY = y + 2;
+		graphics.fill(barX, barY, barEnd, barY + 6, 0xFF000000);
+		int filled = Math.round((barEnd - barX - 2) * Mth.clamp(this.menu.percentFull / 100.0F, 0.0F, 1.0F));
+		int color = percent >= 90 ? 0xFFD03030 : percent >= 70 ? 0xFFE0B030 : 0xFF40B040;
+		graphics.fill(barX + 1, barY + 1, barX + 1 + filled, barY + 5, color);
+	}
+
+	@Override
+	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+		// Same order as vanilla's recipe book screens: the book over the menu, then the carried item and tooltips.
+		this.extractContents(graphics, mouseX, mouseY, partialTick);
+		graphics.nextStratum();
+		if (this.bookShown()) {
+			this.recipeBook.extractRenderState(graphics, mouseX, mouseY, partialTick);
+		}
+		graphics.nextStratum();
+		this.extractCarriedItem(graphics, mouseX, mouseY);
+		this.extractTooltip(graphics, mouseX, mouseY);
+		if (this.bookShown()) {
+			this.recipeBook.extractTooltip(graphics, mouseX, mouseY, this.hoveredSlot);
+		}
+	}
+
+	@Override
+	protected void extractSlots(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+		super.extractSlots(graphics, mouseX, mouseY);
+		if (this.menu.craftingOpen) {
+			this.recipeBook.extractGhostRecipe(graphics, true);
+		}
+	}
+
+	@Override
+	public void recipesUpdated() {
+		this.recipeBook.recipesUpdated();
+	}
+
+	@Override
+	public void fillGhostRecipe(RecipeDisplay display) {
+		this.recipeBook.fillGhostRecipe(display);
 	}
 
 	@Override

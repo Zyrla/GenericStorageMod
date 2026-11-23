@@ -27,12 +27,16 @@ import com.zyria.gsm.item.UpgradeItem;
 import net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket;
 //? if >=26.3
 /*import net.minecraft.util.Prediction;*/
-import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.core.Holder;
+import net.minecraft.recipebook.PlaceRecipeHelper;
+import net.minecraft.world.entity.player.StackedItemContents;
+import net.minecraft.world.inventory.AbstractCraftingMenu;
+import net.minecraft.world.inventory.RecipeBookMenu;
+import net.minecraft.world.inventory.RecipeBookType;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.inventory.DataSlot;
-import net.minecraft.world.inventory.ResultContainer;
 import net.minecraft.world.inventory.ResultSlot;
 import net.minecraft.world.inventory.Slot;
-import net.minecraft.world.inventory.TransientCraftingContainer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.CraftingInput;
 import net.minecraft.world.item.crafting.CraftingRecipe;
@@ -43,7 +47,7 @@ import net.minecraft.world.item.crafting.RecipeType;
  * The shared menu for a storage system. Only the player's inventory uses real slots; the system's
  * items are synced as a list of distinct items with counts and moved with custom packets.
  */
-public class StorageMenu extends AbstractContainerMenu {
+public class StorageMenu extends AbstractCraftingMenu {
 	public static final int GRID_X = 9;
 	public static final int GRID_Y = 18;
 	public static final int GRID_COLUMNS = 9;
@@ -54,19 +58,17 @@ public class StorageMenu extends AbstractContainerMenu {
 	public static final int DISGUISE_Y = 115;
 	/** Slots 0-35 are the player's inventory; this is the opened module's disguise slot. */
 	public static final int DISGUISE_SLOT = 36;
-	/** The system's upgrade slots (2 x 2), in the side panel under the capacity bar. */
+	/** The system's upgrade slots, in one column on a strip that sticks out right of the inventory. */
 	public static final int UPGRADE_SLOT_START = 37;
-	public static final int UPGRADE_X = 202;
-	public static final int UPGRADE_Y = 49;
-	/** Crafting panel (Crafting upgrade): result slot, then the 3 x 3 grid. Drawn left of the menu. */
+	public static final int UPGRADE_X = 196;
+	public static final int UPGRADE_Y = 115;
+	/** Crafting panel (Crafting upgrade): result slot, then the 3 x 3 grid. Drawn left of the menu, with the recipe book under the grid. */
 	public static final int RESULT_SLOT = UPGRADE_SLOT_START + StorageSystem.UPGRADE_SLOTS;
 	public static final int CRAFT_SLOT_START = RESULT_SLOT + 1;
-	public static final int CRAFT_PANEL_X = -168;
-	public static final int CRAFT_PANEL_Y = 0;
+	public static final int CRAFT_PANEL_X = -149;
+	public static final int CRAFT_PANEL_Y = -30;
 
 	private final Container upgrades;
-	private final TransientCraftingContainer craftSlots = new TransientCraftingContainer(this, 3, 3);
-	private final ResultContainer resultSlots = new ResultContainer();
 	/** Client side: whether the crafting panel is open. */
 	public boolean craftingOpen;
 
@@ -95,7 +97,7 @@ public class StorageMenu extends AbstractContainerMenu {
 	}
 
 	public StorageMenu(int containerId, Inventory inventory, BlockPos modulePos, Container disguise) {
-		super(ModContent.STORAGE_MENU, containerId);
+		super(ModContent.STORAGE_MENU, containerId, 3, 3);
 		this.modulePos = modulePos;
 		this.player = inventory.player;
 
@@ -116,12 +118,12 @@ public class StorageMenu extends AbstractContainerMenu {
 			? new UpgradeContainer(serverLevel, modulePos)
 			: new SimpleContainer(StorageSystem.UPGRADE_SLOTS);
 		for (int i = 0; i < StorageSystem.UPGRADE_SLOTS; i++) {
-			this.addSlot(new UpgradeSlot(this.upgrades, i, UPGRADE_X + (i % 2) * 18, UPGRADE_Y + (i / 2) * 18));
+			this.addSlot(new UpgradeSlot(this.upgrades, i, UPGRADE_X, UPGRADE_Y + i * 18));
 		}
 
 		int px = CRAFT_PANEL_X;
 		int py = CRAFT_PANEL_Y;
-		this.addSlot(new ResultSlot(this.player, this.craftSlots, this.resultSlots, 0, px + 104, py + 35) {
+		this.addSlot(new ResultSlot(this.player, this.craftSlots, this.resultSlots, 0, px + 105, py + 33) {
 			@Override
 			public boolean isActive() {
 				return StorageMenu.this.craftingVisible();
@@ -150,7 +152,7 @@ public class StorageMenu extends AbstractContainerMenu {
 		});
 		for (int row = 0; row < 3; row++) {
 			for (int col = 0; col < 3; col++) {
-				this.addSlot(new Slot(this.craftSlots, col + row * 3, px + 10 + col * 18, py + 17 + row * 18) {
+				this.addSlot(new Slot(this.craftSlots, col + row * 3, px + 11 + col * 18, py + 15 + row * 18) {
 					@Override
 					public boolean isActive() {
 						return StorageMenu.this.craftingVisible();
@@ -236,6 +238,124 @@ public class StorageMenu extends AbstractContainerMenu {
 	}
 
 	// ---------------------------------------------------------------- crafting
+
+	@Override
+	public Slot getResultSlot() {
+		return this.slots.get(RESULT_SLOT);
+	}
+
+	@Override
+	public List<Slot> getInputGridSlots() {
+		return this.slots.subList(CRAFT_SLOT_START, CRAFT_SLOT_START + 9);
+	}
+
+	@Override
+	protected Player owner() {
+		return this.player;
+	}
+
+	@Override
+	public RecipeBookType getRecipeBookType() {
+		return RecipeBookType.CRAFTING;
+	}
+
+	@Override
+	public void fillCraftSlotsStackedContents(StackedItemContents contents) {
+		this.craftSlots.fillStackedContents(contents);
+		if (this.player.level().isClientSide()) {
+			// The recipe book also counts what storage holds, so those recipes show as craftable.
+			for (StoredEntry entry : this.entries) {
+				if (Inventory.isUsableForCrafting(entry.stack())) {
+					int count = (int) Math.min(entry.count(), StorageSystem.CRAFTING_COUNT_CAP);
+					contents.accountStack(entry.stack().copyWithCount(count), count);
+				}
+			}
+		}
+	}
+
+	/**
+	 * A recipe was clicked in the recipe book. Like a crafting table, but the ingredients come from
+	 * storage first, then the player's inventory, and whatever was in the grid goes back to storage.
+	 * Clicking the same recipe again adds one more of each; shift-click fills as many as possible.
+	 */
+	@Override
+	public RecipeBookMenu.PostPlaceAction handlePlacement(boolean useMaxItems, boolean allowDroppingItemsToClear,
+														  RecipeHolder<?> holder, ServerLevel level, Inventory inventory) {
+		StorageSystem system = this.system();
+		if (system == null || !this.hasCraftingUpgrade() || !(holder.value() instanceof CraftingRecipe recipe)) {
+			return RecipeBookMenu.PostPlaceAction.NOTHING;
+		}
+
+		boolean alreadyPlaced = recipe.matches(this.craftSlots.asCraftInput(), level);
+		int smallest = Integer.MAX_VALUE;
+		for (int i = 0; i < this.craftSlots.getContainerSize(); i++) {
+			ItemStack stack = this.craftSlots.getItem(i);
+			if (!stack.isEmpty()) {
+				smallest = Math.min(smallest, stack.getCount());
+			}
+		}
+
+		this.returnCraftingGrid(this.player);
+		StackedItemContents available = new StackedItemContents();
+		inventory.fillStackedContents(available);
+		system.fillStackedContents(available);
+		int most = available.getBiggestCraftableStack(recipe, null);
+		if (most <= 0) {
+			this.slotsChanged(this.craftSlots); // clears the result
+			return RecipeBookMenu.PostPlaceAction.PLACE_GHOST_RECIPE;
+		}
+
+		int amount = useMaxItems ? most : alreadyPlaced && smallest != Integer.MAX_VALUE ? Math.min(most, smallest + 1) : 1;
+		List<Holder<Item>> used = new ArrayList<>();
+		if (!available.canCraft(recipe, amount, used::add)) {
+			return RecipeBookMenu.PostPlaceAction.NOTHING;
+		}
+
+		// No grid slot can hold more than one stack of its ingredient.
+		int fits = amount;
+		for (Holder<Item> item : used) {
+			fits = Math.min(fits, item.value().getDefaultMaxStackSize());
+		}
+
+		if (fits != amount) {
+			amount = fits;
+			used.clear();
+			if (!available.canCraft(recipe, amount, used::add)) {
+				return RecipeBookMenu.PostPlaceAction.NOTHING;
+			}
+		}
+
+		int count = amount;
+		PlaceRecipeHelper.placeRecipe(3, 3, recipe, recipe.placementInfo().slotsToIngredientIndex(), (ingredientIndex, gridIndex, x, y) -> {
+			if (ingredientIndex != -1) {
+				ItemStack stack = takeIngredient(system, inventory, used.get(ingredientIndex), count);
+				if (!stack.isEmpty()) {
+					this.craftSlots.setItem(gridIndex, stack);
+				}
+			}
+		});
+		inventory.setChanged();
+		return RecipeBookMenu.PostPlaceAction.NOTHING;
+	}
+
+	/** Up to {@code count} of the item, all of one kind: from storage first, topped up from the inventory. */
+	private static ItemStack takeIngredient(StorageSystem system, Inventory inventory, Holder<Item> item, int count) {
+		ItemStack result = system.extractForCrafting(item, count);
+		for (int i = 0; i < Inventory.INVENTORY_SIZE && result.getCount() < count; i++) {
+			ItemStack stack = inventory.getItem(i);
+			if (stack.is(item) && Inventory.isUsableForCrafting(stack)
+				&& (result.isEmpty() || ItemStack.isSameItemSameComponents(result, stack))) {
+				ItemStack taken = inventory.removeItem(i, count - result.getCount());
+				if (result.isEmpty()) {
+					result = taken;
+				} else {
+					result.grow(taken.getCount());
+				}
+			}
+		}
+
+		return result;
+	}
 
 	@Override
 	public void slotsChanged(Container container) {

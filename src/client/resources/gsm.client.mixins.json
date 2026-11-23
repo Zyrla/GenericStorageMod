@@ -1,0 +1,11 @@
+{
+	"required": true,
+	"package": "com.zyria.gsm.mixin.client",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"RecipeBookComponentInvoker"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
