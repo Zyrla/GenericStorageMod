@@ -118,7 +118,8 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 	private Button sortButton;
 	private int selectedTabId = 0;
 	private int tabScroll;
-	private float scrollOffs;
+	/** The first item row shown. Kept as a row, not a fraction, so items coming and going don't move the view. */
+	private int scrollRow;
 	private boolean scrolling;
 	private List<StoredEntry> visible = List.of();
 	private int seenRevision = -1;
@@ -164,7 +165,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 		this.searchBox.setTextColor(-1);
 		this.searchBox.setValue(previousSearch);
 		this.searchBox.setResponder(value -> {
-			this.scrollOffs = 0;
+			this.scrollRow = 0;
 			this.refresh();
 		});
 		this.addRenderableWidget(this.searchBox);
@@ -336,7 +337,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 
 	private void selectTab(int tabId) {
 		this.selectedTabId = tabId;
-		this.scrollOffs = 0;
+		this.scrollRow = 0;
 		int index = this.indexOfTab(tabId);
 		if (index >= 0) {
 			if (index < this.tabScroll) {
@@ -407,9 +408,6 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 
 		this.visible = result;
 		this.tabScroll = Mth.clamp(this.tabScroll, 0, Math.max(0, this.menu.tabs.size() - VISIBLE_TABS));
-		if (!this.canScroll()) {
-			this.scrollOffs = 0;
-		}
 	}
 
 	private record Row(StoredEntry entry, String name, String namespace) {
@@ -425,7 +423,13 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 	}
 
 	private int firstRow() {
-		return Math.round(this.scrollOffs * this.hiddenRows());
+		// Clamped when read, not stored, so a list that is briefly shorter during an update doesn't lose the position.
+		return Mth.clamp(this.scrollRow, 0, this.hiddenRows());
+	}
+
+	private float scrollFraction() {
+		int hidden = this.hiddenRows();
+		return hidden > 0 ? (float) this.firstRow() / hidden : 0.0F;
 	}
 
 	// ---------------------------------------------------------------- hit testing
@@ -539,6 +543,9 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
 		double mx = event.x();
 		double my = event.y();
+		// A scrollbar drag only lasts until the next click. If its release was missed, dragging an item
+		// would otherwise move the scrollbar to the mouse's height.
+		this.scrolling = false;
 
 		if (this.editing) {
 			Optional<GuiEventListener> child = this.getChildAt(mx, my);
@@ -631,7 +638,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 
 	@Override
 	public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
-		if (this.scrolling) {
+		if (this.scrolling && event.button() == 0) {
 			this.updateScroll(event.y());
 			return true;
 		}
@@ -665,7 +672,8 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 
 	private void updateScroll(double my) {
 		int top = this.topPos + SCROLLER_Y;
-		this.scrollOffs = Mth.clamp(((float) my - top - 7.5F) / (SCROLL_AREA - 15.0F), 0.0F, 1.0F);
+		float fraction = Mth.clamp(((float) my - top - 7.5F) / (SCROLL_AREA - 15.0F), 0.0F, 1.0F);
+		this.scrollRow = Math.round(fraction * this.hiddenRows());
 	}
 
 	@Override
@@ -680,7 +688,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 		}
 
 		if (this.canScroll() && (this.cellAt(mx, my) != -2 || this.inScroller(mx, my))) {
-			this.scrollOffs = Mth.clamp(this.scrollOffs - (float) (scrollY / this.hiddenRows()), 0.0F, 1.0F);
+			this.scrollRow = Mth.clamp(this.firstRow() - (int) Math.signum(scrollY), 0, this.hiddenRows());
 			return true;
 		}
 
@@ -873,7 +881,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 			this.extractCraftingGrid(graphics);
 		}
 
-		int scrollerY = y + SCROLLER_Y + (int) ((SCROLL_AREA - 17) * this.scrollOffs);
+		int scrollerY = y + SCROLLER_Y + (int) ((SCROLL_AREA - 17) * this.scrollFraction());
 		graphics.blitSprite(RenderPipelines.GUI_TEXTURED, this.canScroll() ? SCROLLER_SPRITE : SCROLLER_DISABLED_SPRITE, x + SCROLLER_X, scrollerY, 12, 15);
 
 		this.extractGrid(graphics, mouseX, mouseY);
