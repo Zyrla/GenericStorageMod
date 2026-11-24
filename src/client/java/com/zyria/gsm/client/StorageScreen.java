@@ -88,11 +88,17 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 	// The fullness readout sits under the menu.
 	private static final int FULLNESS_Y = HEIGHT + 3;
 	private static final int FULLNESS_H = 10;
-	// Tab editor panel, drawn over the item area.
-	private static final int PANEL_X = 6;
-	private static final int PANEL_Y = 2;
-	private static final int PANEL_W = 183;
-	private static final int PANEL_H = 108;
+	// Settings panel: pops out on the left of the menu like the crafting panel (the menu shifts right by CRAFT_SHIFT).
+	private static final int SETTINGS_W = RecipeBookComponent.IMAGE_WIDTH;
+	private static final int SETTINGS_X = StorageMenu.CRAFT_PANEL_X;
+	// Same top and height as the crafting grid's strip, so switching panels doesn't move anything.
+	private static final int SETTINGS_Y = StorageMenu.CRAFT_PANEL_Y;
+	private static final int SETTINGS_H = BOOK_Y - StorageMenu.CRAFT_PANEL_Y;
+	// Tab editor: opens right under the settings panel, like the recipe book under the crafting grid.
+	private static final int PANEL_X = SETTINGS_X;
+	private static final int PANEL_Y = SETTINGS_Y + SETTINGS_H;
+	private static final int PANEL_W = SETTINGS_W;
+	private static final int PANEL_H = 121;
 
 	private static final int TEXT_DARK = 0xFF404040;
 	private static final int TEXT_LIGHT = 0xFFFFFFFF;
@@ -103,12 +109,11 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 	/** Opens and closes the recipe book, under the crafting arrow like on a crafting table. */
 	private ImageButton recipeBookButton;
 	private Button settingsButton;
-	// Settings panel (opened with the gear button). Shares the overlay area with the tab editor.
+	// Settings panel (opened with the settings button), left of the menu. Opening it closes the crafting panel.
 	private boolean settingsOpen;
 	private Button settingsNewTab;
 	private Button settingsEditTab;
 	private Button autoFillButton;
-	private Button settingsDone;
 	private Button fullnessButton;
 	private Button helpButton;
 	private Button rotateButton;
@@ -151,7 +156,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 	@Override
 	protected void init() {
 		super.init();
-		if (this.menu.craftingOpen) {
+		if (this.menu.craftingOpen || this.settingsOpen) {
 			this.leftPos += CRAFT_SHIFT;
 			this.topPos += CRAFT_SHIFT_Y;
 		}
@@ -177,7 +182,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 			.bounds(columnX, this.topPos + 132, 18, 18)
 			.tooltip(Tooltip.create(Component.translatable("gui.gsm.rotate_disguise")))
 			.build());
-		this.settingsButton = this.addRenderableWidget(Button.builder(Component.literal("\u2630"), b -> this.openSettings())
+		this.settingsButton = this.addRenderableWidget(Button.builder(Component.literal("\u2630"), b -> this.setSettingsOpen(!this.settingsOpen))
 			.bounds(columnX, this.topPos + 150, 18, 18)
 			.tooltip(Tooltip.create(Component.translatable("gui.gsm.settings")))
 			.build());
@@ -189,51 +194,55 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 
 		int px = this.leftPos + PANEL_X;
 		int py = this.topPos + PANEL_Y;
-		this.nameBox = this.addRenderableWidget(new EditBox(this.font, px + 4, py + 13, 110, 14, Component.translatable("gui.gsm.tab_name")));
+		// Tab editor, under the settings panel. Name and icon have their labels on the left.
+		int inner = PANEL_W - 16;
+		this.nameBox = this.addRenderableWidget(new EditBox(this.font, px + 40, py + 18, inner - 32, 14, Component.translatable("gui.gsm.tab_name")));
 		this.nameBox.setMaxLength(32);
-		this.iconBox = this.addRenderableWidget(new EditBox(this.font, px + 4, py + 30, 110, 14, Component.translatable("gui.gsm.tab_icon")));
+		this.iconBox = this.addRenderableWidget(new EditBox(this.font, px + 40, py + 35, inner - 32, 14, Component.translatable("gui.gsm.tab_icon")));
 		this.iconBox.setMaxLength(100);
 		this.iconBox.setHint(Component.literal("minecraft:apple"));
-		this.rulesBox = this.addRenderableWidget(new EditBox(this.font, px + 4, py + 57, PANEL_W - 8, 14, Component.translatable("gui.gsm.tab_rules")));
+		this.rulesBox = this.addRenderableWidget(new EditBox(this.font, px + 8, py + 64, inner, 14, Component.translatable("gui.gsm.tab_rules")));
 		this.rulesBox.setMaxLength(2000);
 		this.rulesBox.setHint(Component.literal("#c:ores, minecraft:coal"));
+		this.rulesBox.setTooltip(Tooltip.create(Component.translatable("gui.gsm.tab_rules.tooltip")));
 		this.sortingButton = this.addRenderableWidget(Button.builder(Component.empty(), b -> {
 				this.editSorting = !this.editSorting;
 				this.updateEditorWidgets();
 			})
-			.bounds(px + 4, py + 74, 110, 16)
+			.bounds(px + 8, py + 81, inner, 16)
 			.tooltip(Tooltip.create(Component.translatable("gui.gsm.sorting.tooltip")))
 			.build());
 		this.saveButton = this.addRenderableWidget(Button.builder(Component.translatable("gui.gsm.save"), b -> this.saveEdit())
-			.bounds(px + 4, py + 91, 56, 16).build());
+			.bounds(px + 8, py + 100, 40, 16).build());
 		this.cancelButton = this.addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), b -> this.stopEditing())
-			.bounds(px + 63, py + 91, 56, 16).build());
+			.bounds(px + 51, py + 100, 40, 16).build());
 		this.removeButton = this.addRenderableWidget(Button.builder(Component.translatable("gui.gsm.remove_tab"), b -> this.removeTab())
-			.bounds(px + 122, py + 91, 57, 16).build());
+			.bounds(px + 94, py + 100, inner - 86, 16).build());
 
-		// Settings panel.
+		// Settings panel, left of the menu.
+		int sx = this.leftPos + SETTINGS_X;
+		int sy = this.topPos + SETTINGS_Y;
+		int half = (SETTINGS_W - 16 - 3) / 2;
 		this.settingsNewTab = this.addRenderableWidget(Button.builder(Component.translatable("gui.gsm.new_tab"), b -> this.startEditing(-1))
-			.bounds(px + 4, py + 26, 86, 16).build());
+			.bounds(sx + 8, sy + 16, half, 16).build());
 		this.settingsEditTab = this.addRenderableWidget(Button.builder(Component.translatable("gui.gsm.edit_tab"), b -> this.startEditing(this.selectedTabId))
-			.bounds(px + 93, py + 26, 86, 16).build());
+			.bounds(sx + 8 + half + 3, sy + 16, half, 16).build());
 		this.autoFillButton = this.addRenderableWidget(Button.builder(Component.empty(), b -> ClientPlayNetworking.send(
 				new ModNetworking.ChangeSetting(this.menu.containerId, ModNetworking.SETTING_CRAFTING_AUTO_FILL, this.menu.craftingAutoFill() ? 0 : 1)))
-			.bounds(px + 4, py + 58, PANEL_W - 8, 16)
+			.bounds(sx + 8, sy + 34, SETTINGS_W - 16, 16)
 			.tooltip(Tooltip.create(Component.translatable("gui.gsm.auto_fill.tooltip")))
 			.build());
-		this.settingsDone = this.addRenderableWidget(Button.builder(Component.translatable("gui.done"), b -> this.stopEditing())
-			.bounds(px + 4, py + 91, 56, 16).build());
 		this.fullnessButton = this.addRenderableWidget(Button.builder(Component.empty(), b -> {
 				ClientSettings.setShowFullness(!ClientSettings.showFullness());
 				this.updateEditorWidgets();
 			})
-			.bounds(px + 63, py + 91, 96, 16)
+			.bounds(sx + 8, sy + 52, SETTINGS_W - 16 - 19, 16)
 			.tooltip(Tooltip.create(Component.translatable("gui.gsm.fullness.tooltip")))
 			.build());
 		// Help sits in the settings panel's bottom-right corner; hovering it shows the tips.
 		this.helpButton = this.addRenderableWidget(Button.builder(Component.literal("?"), b -> {
 			})
-			.bounds(px + PANEL_W - 20, py + 91, 16, 16)
+			.bounds(sx + SETTINGS_W - 24, sy + 52, 16, 16)
 			.tooltip(Tooltip.create(Component.translatable("gui.gsm.help")))
 			.build());
 
@@ -277,18 +286,25 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 		}
 	}
 
-	private void openSettings() {
-		this.editing = true; // the overlay is open: the item area ignores clicks
-		this.settingsOpen = true;
-		this.searchBox.setFocused(false);
-		this.setFocused(null);
-		this.updateEditorWidgets();
+	/** Opens or closes the settings panel. Only one side panel shows at a time, so opening it closes crafting. */
+	private void setSettingsOpen(boolean open) {
+		if (this.settingsOpen != open) {
+			this.settingsOpen = open;
+			if (open) {
+				this.menu.craftingOpen = false;
+			} else {
+				this.editing = false; // the tab editor hangs under the settings panel
+				this.removeArmed = false;
+			}
+
+			this.rebuildWidgets(); // re-centers the menu with the panel open or closed
+		}
 	}
 
 	@Override
 	protected void containerTick() {
 		super.containerTick();
-		this.rotateButton.active = !this.editing && this.disguiseCanTurn();
+		this.rotateButton.active = this.disguiseCanTurn();
 		if (this.settingsOpen) {
 			// The Crafting Upgrade can be added or removed while the panel is open.
 			this.autoFillButton.visible = this.menu.hasCraftingUpgrade();
@@ -506,6 +522,13 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 	private void setCraftingOpen(boolean open) {
 		if (this.menu.craftingOpen != open) {
 			this.menu.craftingOpen = open;
+			if (open) {
+				// Only one side panel at a time; the tab editor goes with the settings panel.
+				this.settingsOpen = false;
+				this.editing = false;
+				this.removeArmed = false;
+			}
+
 			this.rebuildWidgets(); // re-centers the menu with the panel open or closed
 		}
 	}
@@ -525,16 +548,22 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 		return mx >= x && mx < x + 14 && my >= y && my < y + SCROLL_AREA;
 	}
 
+	private boolean inSettingsPanel(double mx, double my) {
+		int x = this.leftPos + SETTINGS_X;
+		int y = this.topPos + SETTINGS_Y;
+		return this.settingsOpen && mx >= x && mx < x + SETTINGS_W && my >= y && my < y + SETTINGS_H;
+	}
+
 	private boolean inEditorPanel(double mx, double my) {
 		int x = this.leftPos + PANEL_X;
 		int y = this.topPos + PANEL_Y;
-		return mx >= x && mx < x + PANEL_W && my >= y && my < y + PANEL_H;
+		return this.editing && mx >= x && mx < x + PANEL_W && my >= y && my < y + PANEL_H;
 	}
 
 	@Override
 	protected boolean hasClickedOutside(double mx, double my, int xo, int yo) {
 		return super.hasClickedOutside(mx, my, xo, yo) && !this.inTabColumn(mx, my) && !this.inUpgradeStrip(mx, my) && !this.inFullness(mx, my)
-			&& !this.inCraftTab(mx, my) && !this.inCraftPanel(mx, my);
+			&& !this.inCraftTab(mx, my) && !this.inCraftPanel(mx, my) && !this.inSettingsPanel(mx, my) && !this.inEditorPanel(mx, my);
 	}
 
 	// ---------------------------------------------------------------- input
@@ -561,7 +590,10 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 			if (this.inEditorPanel(mx, my)) {
 				return true;
 			}
-		} else if (this.bookShown() && this.recipeBook.mouseClicked(event, doubleClick)) {
+			// The editor sits beside the menu, so the rest of the menu keeps working while it is open.
+		}
+
+		if (this.bookShown() && this.recipeBook.mouseClicked(event, doubleClick)) {
 			this.setFocused(this.recipeBook);
 			return true;
 		} else {
@@ -581,8 +613,8 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 			StorageTab tab = this.tabAt(mx, my);
 			if (tab != null) {
 				ItemStack carried = this.menu.getCarried();
-				if (event.button() == 1 && !carried.isEmpty()) {
-					// Right-clicking a tab while holding an item adds that item to the tab by hand.
+				if ((event.button() == 0 || event.button() == 1) && !carried.isEmpty()) {
+					// Clicking a tab while holding an item adds that item to the tab by hand.
 					ClientPlayNetworking.send(new ModNetworking.AssignItem(this.menu.containerId, tab.id, carried.copyWithCount(1), true));
 				} else {
 					this.selectTab(tab.id);
@@ -623,8 +655,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 		return listener == this.nameBox || listener == this.iconBox || listener == this.rulesBox
 			|| listener == this.sortingButton || listener == this.saveButton || listener == this.cancelButton
 			|| listener == this.removeButton || listener == this.settingsNewTab || listener == this.settingsEditTab
-			|| listener == this.autoFillButton || listener == this.settingsDone || listener == this.fullnessButton
-			|| listener == this.helpButton;
+			|| listener == this.autoFillButton || listener == this.fullnessButton || listener == this.helpButton;
 	}
 
 	@Override
@@ -678,10 +709,6 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 
 	@Override
 	public boolean mouseScrolled(double mx, double my, double scrollX, double scrollY) {
-		if (this.editing) {
-			return super.mouseScrolled(mx, my, scrollX, scrollY);
-		}
-
 		if (this.inTabColumn(mx, my)) {
 			this.tabScroll = Mth.clamp(this.tabScroll - (int) Math.signum(scrollY), 0, this.maxTabScroll());
 			return true;
@@ -755,7 +782,6 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 
 	private void startEditing(int tabId) {
 		this.editing = true;
-		this.settingsOpen = false;
 		this.editingTabId = tabId;
 		this.removeArmed = false;
 		StorageTab tab = tabId >= 0 ? this.selectedTab() : null;
@@ -779,7 +805,6 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 
 	private void stopEditing() {
 		this.editing = false;
-		this.settingsOpen = false;
 		this.removeArmed = false;
 		this.setFocused(null);
 		this.updateEditorWidgets();
@@ -831,7 +856,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 		StorageTab tab = this.editingTab();
 		boolean hasRules = tab == null || tab.kind == StorageTab.Kind.CATEGORY;
 
-		boolean editor = this.editing && !this.settingsOpen;
+		boolean editor = this.editing;
 		this.nameBox.setVisible(editor);
 		this.iconBox.setVisible(editor);
 		this.rulesBox.setVisible(editor && hasRules);
@@ -846,7 +871,6 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 		this.settingsEditTab.active = this.selectedTab() != null;
 		this.autoFillButton.visible = this.settingsOpen && this.menu.hasCraftingUpgrade();
 		this.autoFillButton.setMessage(Component.translatable(this.menu.craftingAutoFill() ? "gui.gsm.auto_fill.on" : "gui.gsm.auto_fill.off"));
-		this.settingsDone.visible = this.settingsOpen;
 		this.fullnessButton.visible = this.settingsOpen;
 		this.fullnessButton.setMessage(Component.translatable(ClientSettings.showFullness() ? "gui.gsm.fullness.on" : "gui.gsm.fullness.off"));
 		this.helpButton.visible = this.settingsOpen;
@@ -854,9 +878,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 		this.removeButton.setMessage(Component.translatable(this.removeArmed ? "gui.gsm.confirm" : "gui.gsm.remove_tab"));
 		this.sortingButton.setMessage(Component.translatable(this.editSorting ? "gui.gsm.sorting.on" : "gui.gsm.sorting.off"));
 
-		this.searchBox.setVisible(!this.editing);
-		this.settingsButton.active = !this.editing;
-		this.sortButton.active = !this.editing && this.selectedTab() != null;
+		this.sortButton.active = this.selectedTab() != null;
 		StorageTab sortTab = this.selectedTab();
 		if (sortTab != null) {
 			this.sortButton.setTooltip(Tooltip.create(Component.translatable("gui.gsm.sort",
@@ -879,6 +901,8 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 		this.extractTabs(graphics, true);
 		if (this.menu.craftingOpen) {
 			this.extractCraftingGrid(graphics);
+		} else if (this.settingsOpen) {
+			this.extractSettingsPanel(graphics);
 		}
 
 		int scrollerY = y + SCROLLER_Y + (int) ((SCROLL_AREA - 17) * this.scrollFraction());
@@ -888,34 +912,31 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 		this.extractCapacity(graphics);
 
 		if (this.editing) {
-			graphics.nextStratum();
-			int px = x + PANEL_X;
-			int py = y + PANEL_Y;
-			graphics.fill(px, py, px + PANEL_W, py + PANEL_H, 0xF0202020);
-			graphics.outline(px, py, PANEL_W, PANEL_H, 0xFFA0A0A0);
-			if (this.settingsOpen) {
-				graphics.text(this.font, Component.translatable("gui.gsm.settings"), px + 4, py + 3, TEXT_LIGHT, false);
-				Component modules = Component.translatable("gui.gsm.modules", this.menu.modules);
-				graphics.text(this.font, modules, px + PANEL_W - 4 - this.font.width(modules), py + 3, 0xFFC0C0C0, false);
-				graphics.text(this.font, Component.translatable("gui.gsm.settings.tabs"), px + 4, py + 16, 0xFFC0C0C0, false);
-				if (this.menu.hasCraftingUpgrade()) {
-					graphics.text(this.font, Component.translatable("gui.gsm.settings.crafting"), px + 4, py + 48, 0xFFC0C0C0, false);
-				}
-				return;
-			}
+			this.extractEditorPanel(graphics);
+		}
+	}
 
-			StorageTab tab = this.editingTab();
-			Component heading = tab == null
-				? Component.translatable("gui.gsm.new_tab_title")
-				: Component.translatable("gui.gsm.edit_tab_title", tab.name);
-			graphics.text(this.font, heading, px + 4, py + 3, TEXT_LIGHT, false);
-			graphics.text(this.font, Component.translatable("gui.gsm.tab_name"), px + 120, py + 16, 0xFFC0C0C0, false);
-			graphics.text(this.font, Component.translatable("gui.gsm.tab_icon"), px + 120, py + 33, 0xFFC0C0C0, false);
-			if (tab == null || tab.kind == StorageTab.Kind.CATEGORY) {
-				graphics.text(this.font, Component.translatable("gui.gsm.tab_rules"), px + 4, py + 47, 0xFFC0C0C0, false);
-			} else {
-				graphics.text(this.font, Component.translatable("gui.gsm.builtin_rules"), px + 4, py + 52, 0xFF909090, false);
-			}
+	/** The tab editor, hanging under the settings panel like the recipe book under the crafting grid. */
+	private void extractEditorPanel(GuiGraphicsExtractor graphics) {
+		int px = this.leftPos + PANEL_X;
+		int py = this.topPos + PANEL_Y;
+		extractBox(graphics, px, py, PANEL_W, PANEL_H);
+		StorageTab tab = this.editingTab();
+		String heading = (tab == null
+			? Component.translatable("gui.gsm.new_tab_title")
+			: Component.translatable("gui.gsm.edit_tab_title", tab.name)).getString();
+		int max = PANEL_W - 16;
+		if (this.font.width(heading) > max) {
+			heading = this.font.plainSubstrByWidth(heading, max - this.font.width("...")) + "...";
+		}
+
+		graphics.text(this.font, Component.literal(heading), px + 8, py + 6, TEXT_DARK, false);
+		graphics.text(this.font, Component.translatable("gui.gsm.tab_name"), px + 8, py + 21, TEXT_DARK, false);
+		graphics.text(this.font, Component.translatable("gui.gsm.tab_icon"), px + 8, py + 38, TEXT_DARK, false);
+		if (tab == null || tab.kind == StorageTab.Kind.CATEGORY) {
+			graphics.text(this.font, Component.translatable("gui.gsm.tab_rules"), px + 8, py + 54, TEXT_DARK, false);
+		} else {
+			graphics.text(this.font, Component.translatable("gui.gsm.builtin_rules"), px + 8, py + 60, 0xFF707070, false);
 		}
 	}
 
@@ -981,6 +1002,16 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 
 		graphics.blit(RenderPipelines.GUI_TEXTURED, CRAFTING_TEXTURE, x + 71, y + 33, 90.0F, 35.0F, 22, 15, 256, 256);
 		graphics.blit(RenderPipelines.GUI_TEXTURED, CRAFTING_TEXTURE, x + 100, y + 28, 119.0F, 30.0F, 26, 26, 256, 256);
+	}
+
+	/** The settings panel left of the menu, the same size and place as the crafting grid's strip. */
+	private void extractSettingsPanel(GuiGraphicsExtractor graphics) {
+		int x = this.leftPos + SETTINGS_X;
+		int y = this.topPos + SETTINGS_Y;
+		extractBox(graphics, x, y, SETTINGS_W, SETTINGS_H);
+		graphics.text(this.font, Component.translatable("gui.gsm.settings"), x + 8, y + 4, TEXT_DARK, false);
+		Component modules = Component.translatable("gui.gsm.modules", this.menu.modules);
+		graphics.text(this.font, modules, x + SETTINGS_W - 8 - this.font.width(modules), y + 4, TEXT_DARK, false);
 	}
 
 	/** A plain stretch of panel: left and right borders with light gray between. */
@@ -1094,7 +1125,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 			int index = first + i;
 			int sx = this.leftPos + StorageMenu.GRID_X + (i % StorageMenu.GRID_COLUMNS) * 18;
 			int sy = this.topPos + StorageMenu.GRID_Y + (i / StorageMenu.GRID_COLUMNS) * 18;
-			if (!this.editing && isSameCell(mouseX, mouseY, sx, sy)) {
+			if (isSameCell(mouseX, mouseY, sx, sy)) {
 				graphics.fill(sx, sy, sx + 16, sy + 16, 0x80FFFFFF);
 			}
 
@@ -1169,15 +1200,13 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 
 	@Override
 	protected void extractLabels(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
-		if (!this.editing) {
-			graphics.text(this.font, this.title, 8, 6, TEXT_DARK, false);
-		}
+		graphics.text(this.font, this.title, 8, 6, TEXT_DARK, false);
 	}
 
 	@Override
 	protected void extractTooltip(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
 		super.extractTooltip(graphics, mouseX, mouseY);
-		if (this.editing || !this.menu.getCarried().isEmpty()) {
+		if (!this.menu.getCarried().isEmpty()) {
 			return;
 		}
 

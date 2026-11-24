@@ -20,9 +20,10 @@
 	"gui.gsm.edit_tab_title": "Edit tab: %s",
 	"gui.gsm.default_tab_name": "New Tab",
 	"gui.gsm.tab_name": "Name",
-	"gui.gsm.tab_icon": "Icon item",
-	"gui.gsm.tab_rules": "Rules (#tag or item id, comma-separated)",
-	"gui.gsm.builtin_rules": "This built-in tab has no rules.",
+	"gui.gsm.tab_icon": "Icon",
+	"gui.gsm.tab_rules": "Rules",
+	"gui.gsm.tab_rules.tooltip": "#tag or item id, comma-separated",
+	"gui.gsm.builtin_rules": "Built-in tab: no rules.",
 	"gui.gsm.sorting.on": "Sorting: On",
 	"gui.gsm.sorting.off": "Sorting: Off",
 	"gui.gsm.sorting.tooltip": "When sorting is off, no new items enter this tab. Items already in it stay.",
@@ -42,5 +43,5 @@
 	"gui.gsm.sort.mod": "mod",
 	"gui.gsm.disguise": "Disguise",
 	"gui.gsm.disguise.hint": "Put a full, solid block here to make\nthe module you opened look like it.\nTake it out to remove the disguise.",
-	"gui.gsm.help": "Right-click a tab while holding an item: add that item to the tab\nPress Delete over an item: take it out of this tab\n\nThe slot beside your inventory disguises the module you opened.\n\nSearch only looks in the selected tab.\nScroll over the tabs to see more."
+	"gui.gsm.help": "Left-click a tab while holding an item: add that item to the tab\nPress Delete over an item: take it out of this tab\nShift-click an item: move a full stack to your inventory\n\nThe ⇅ button changes how the selected tab is sorted.\nThe slot beside your inventory disguises the module you opened, and ↻ turns the disguise.\n\nSearch only looks in the selected tab.\nScroll over the tabs to see more."
 }

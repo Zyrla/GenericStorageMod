@@ -48,11 +48,11 @@ Storage Modules are blocks that store items. Put them next to each other and the
 
 - **Take items:** left-click for a stack, right-click for half, shift-click to send to your inventory.
 - **Store items:** click with an item in the item area, or shift-click it in your inventory.
-- **Add an item to a tab:** right-click the tab while holding the item.
+- **Add an item to a tab:** click the tab while holding the item.
 - **Remove an item from a tab:** hover over it and press Delete.
 - **Upgrades:** put them in the upgrade slots on the strip beside your inventory. They work for the whole system.
 - **Crafting:** with the Crafting Upgrade, the crafting table tab on the right opens a crafting grid and recipe book. Click a recipe to fill the grid from storage and your inventory; shift-click to fill as many as possible. The book button under the arrow shows or hides the recipe book.
-- **Settings:** the menu button opens settings for tabs, crafting auto-fill (refills the crafting grid from storage after each craft), and showing or hiding the fullness bar under the menu. The ? button there lists the controls.
+- **Settings:** the menu button opens a settings panel on the left (it replaces the crafting panel while open) for tabs, crafting auto-fill (refills the crafting grid from storage after each craft), and showing or hiding the fullness bar under the menu. The ? button there lists the controls.
 
 Breaking a module never loses items. Its items move into the rest of the system, or drop if there is no room.
 
