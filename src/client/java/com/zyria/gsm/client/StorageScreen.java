@@ -669,7 +669,7 @@ public class StorageScreen extends AbstractContainerScreen<StorageMenu> implemen
 
 	@Override
 	public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
-		if (this.scrolling && event.button() == 0) {
+		if (this.scrolling) {
 			this.updateScroll(event.y());
 			return true;
 		}
