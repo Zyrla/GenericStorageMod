@@ -66,12 +66,8 @@ Breaking a module never loses items. Its items move into the rest of the system,
 - Fabric Loader 0.20.1 or newer
 - Fabric API
 
-Install on both the client and the server.
-
-## Building
-
-Run `gradlew buildAndCollect`. The jars for every supported version end up in `build/libs/<mod version>/`.
+Install on both client and server for server support
 
 ## License
 
-The code is under the MIT License, so it is free to use in modpacks. The textures are based on Minecraft's own and belong to Mojang.
+The License is [Here](https://github.com/Zyrla/GenericStorageMod/blob/bb06bc189b3ba89b541a11df8395c20129d6c997/LICENSE)
